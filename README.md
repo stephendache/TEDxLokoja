@@ -54,7 +54,7 @@ Check our [CONTRIBUTING.md](CONTRIBUTING.md) (to be added) for detailed guidelin
 - Website: [https://tedxlokoja.com](https://tedxlokoja.com) *(replace with actual)*
 - Instagram: [@tedxlokoja](https://instagram.com/tedxlokoja)
 - Twitter: [@tedxlokoja](https://twitter.com/tedxlokoja)
-- Email: `organizers@tedxlokoja.com`
+- Email: `tedxlokoja@gmail.com`
 
 ---
 
