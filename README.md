@@ -30,12 +30,7 @@ This repository contains resources and materials related to TEDxLokoja:
 ---
 
 ## 🛠️ Tech Stack
-
-Depending on what you're building (website, tools, automation), update this section:
-
 - HTML, CSS, JavaScript
-- React / Next.js
-- TailwindCSS
 - GitHub Actions (for CI/CD)
 
 ---
