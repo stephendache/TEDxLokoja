@@ -1,0 +1,20 @@
+How to Access the Admin Dashboard
+=================================
+
+The system is configured with a default "super admin" based on the email address provided during setup. 
+
+Here is how you can access the admin system:
+
+1. Open the application in your browser.
+2. Click the "Login" button in the top right corner of the navigation bar.
+3. Sign in using the Google account associated with this email address: paulstephenedache@gmail.com
+4. Once you are successfully logged in, an "Admin" link will automatically appear in the top navigation bar next to "Tickets".
+5. Click the "Admin" link to access the Admin Dashboard (or navigate directly to /admin).
+
+How to Grant Admin Access to Others:
+------------------------------------
+1. Have the new user log into the application at least once using their Google account.
+2. Log in with your admin account (paulstephenedache@gmail.com).
+3. Go to the Admin Dashboard and click on the "Manage Users" tab.
+4. Find the user in the list and click the "Make Admin" button next to their name.
+5. They will now have full admin privileges and will see the "Admin" link in their navigation bar.
