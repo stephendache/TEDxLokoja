@@ -117,7 +117,7 @@ export default function Sponsor() {
                   value={formData.email}
                   onChange={e => setFormData({...formData, email: e.target.value})}
                   className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition-all"
-                  placeholder="john@acmecorp.com"
+                  placeholder="stephen@bineops.com"
                 />
               </div>
               <div>
