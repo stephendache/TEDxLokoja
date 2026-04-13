@@ -103,7 +103,7 @@ export default function Sponsor() {
                   value={formData.contactName}
                   onChange={e => setFormData({...formData, contactName: e.target.value})}
                   className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition-all"
-                  placeholder="John Doe"
+                  placeholder="Stephen Doe"
                 />
               </div>
             </div>
