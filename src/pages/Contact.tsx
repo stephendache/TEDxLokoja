@@ -1,7 +1,29 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Mail, MapPin, Phone } from 'lucide-react';
+import { db } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 export default function Contact() {
+  const [eventSettings, setEventSettings] = useState({
+    venue: 'College of Health Sciences (COHS) Auditorium',
+    venueAddress: 'Federal University Lokoja, Adankolo Campus'
+  });
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const settingsDoc = await getDoc(doc(db, 'settings', 'eventDetails'));
+        if (settingsDoc.exists()) {
+          setEventSettings(settingsDoc.data() as any);
+        }
+      } catch (error) {
+        console.error("Error fetching event settings:", error);
+      }
+    };
+    fetchSettings();
+  }, []);
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-20">
       <div className="text-center mb-16">
@@ -49,8 +71,8 @@ export default function Contact() {
             <div>
               <h3 className="text-xl font-bold mb-2">Event Location</h3>
               <p className="text-gray-600">
-                College of Health Sciences (COHS) Auditorium<br />
-                Federal University Lokoja, Adankolo Campus<br />
+                {eventSettings.venue}<br />
+                {eventSettings.venueAddress}<br />
                 Lokoja, Kogi State, Nigeria
               </p>
             </div>

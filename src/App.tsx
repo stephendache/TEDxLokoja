@@ -1,6 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import Home from './pages/Home';
 import AdminDashboard from './pages/AdminDashboard';
@@ -12,6 +12,7 @@ import CallForSpeakers from './pages/CallForSpeakers';
 import Sponsor from './pages/Sponsor';
 import About from './pages/About';
 import Store from './pages/Store';
+import Profile from './pages/Profile';
 import { LogOut, User, Twitter, Facebook, Linkedin, Instagram, ArrowRight } from 'lucide-react';
 
 function Navbar() {
@@ -41,10 +42,10 @@ function Navbar() {
           )}
           {user ? (
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 text-sm text-gray-300">
+              <Link to="/profile" className="flex items-center gap-2 text-sm text-gray-300 hover:text-white transition-colors">
                 <User size={16} />
                 <span>{profile?.displayName || user.email}</span>
-              </div>
+              </Link>
               <button 
                 onClick={logout}
                 className="flex items-center gap-2 bg-red-600 hover:bg-red-700 px-4 py-2 rounded-full text-sm font-medium transition-colors"
@@ -226,11 +227,12 @@ function AppRoutes() {
       <Navbar />
       <main className="flex-grow pt-[72px]">
         <AnimatePresence mode="wait">
-          <Routes location={location} key={location.pathname}>
+          <Routes location={location}>
             <Route path="/" element={<PageWrapper><Home /></PageWrapper>} />
             <Route path="/about" element={<PageWrapper><About /></PageWrapper>} />
             <Route path="/tickets" element={<PageWrapper><Tickets /></PageWrapper>} />
             <Route path="/store" element={<PageWrapper><Store /></PageWrapper>} />
+            <Route path="/profile" element={<PageWrapper><Profile /></PageWrapper>} />
             <Route path="/admin" element={<PageWrapper><AdminDashboard /></PageWrapper>} />
             <Route path="/privacy" element={<PageWrapper><PrivacyPolicy /></PageWrapper>} />
             <Route path="/terms" element={<PageWrapper><TermsOfService /></PageWrapper>} />

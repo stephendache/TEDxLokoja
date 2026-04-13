@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { Calendar, MapPin, Users, Mic, Lightbulb, Globe, ArrowRight, Twitter, Facebook, Linkedin, Link as LinkIcon, ChevronDown, ChevronUp } from 'lucide-react';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
 
 const faqs = [
   { q: "What is the refund policy?", a: "All ticket sales are final. We do not offer refunds or exchanges, except in the event that the conference is entirely canceled." },
@@ -20,7 +20,7 @@ interface Speaker {
   imageUrl?: string;
 }
 
-function FAQItem({ question, answer }: { question: string, answer: string }) {
+const FAQItem: React.FC<{ question: string, answer: string }> = ({ question, answer }) => {
   const [isOpen, setIsOpen] = useState(false);
   return (
     <div className="border-b border-gray-200 py-6">
@@ -44,15 +44,36 @@ function FAQItem({ question, answer }: { question: string, answer: string }) {
 export default function Home() {
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   const [speakers, setSpeakers] = useState<Speaker[]>([]);
+  const [eventSettings, setEventSettings] = useState({
+    date: '16th May, 2026',
+    time: '9:00 AM - 5:00 PM',
+    venue: 'College of Health Sciences (COHS) Auditorium',
+    venueAddress: 'Federal University Lokoja, Adankolo Campus',
+    countdownTarget: '2026-05-16T09:00:00'
+  });
 
   useEffect(() => {
-    const targetDate = new Date('2026-05-16T09:00:00').getTime();
+    const fetchSettings = async () => {
+      try {
+        const settingsDoc = await getDoc(doc(db, 'settings', 'eventDetails'));
+        if (settingsDoc.exists()) {
+          setEventSettings(settingsDoc.data() as any);
+        }
+      } catch (error) {
+        console.error("Error fetching event settings:", error);
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  useEffect(() => {
+    const targetDate = new Date(eventSettings.countdownTarget || '2026-05-16T09:00:00').getTime();
 
     const interval = setInterval(() => {
       const now = new Date().getTime();
       const distance = targetDate - now;
 
-      if (distance < 0) {
+      if (distance < 0 || isNaN(distance)) {
         clearInterval(interval);
         setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0 });
         return;
@@ -66,6 +87,10 @@ export default function Home() {
       });
     }, 1000);
 
+    return () => clearInterval(interval);
+  }, [eventSettings.countdownTarget]);
+
+  useEffect(() => {
     const unsubscribeSpeakers = onSnapshot(collection(db, 'speakers'), (snapshot) => {
       const speakerData = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -77,7 +102,6 @@ export default function Home() {
     });
 
     return () => {
-      clearInterval(interval);
       unsubscribeSpeakers();
     };
   }, []);
@@ -164,7 +188,7 @@ export default function Home() {
                 <Calendar size={28} strokeWidth={1.5} />
               </div>
               <h3 className="text-2xl font-bold mb-3 tracking-tight text-gray-900">Date & Time</h3>
-              <p className="text-gray-500 leading-relaxed font-medium">16th May, 2026<br />9:00 AM - 5:00 PM</p>
+              <p className="text-gray-500 leading-relaxed font-medium">{eventSettings.date}<br />{eventSettings.time}</p>
             </motion.div>
             
             <motion.div 
@@ -178,7 +202,7 @@ export default function Home() {
                 <MapPin size={28} strokeWidth={1.5} />
               </div>
               <h3 className="text-2xl font-bold mb-3 tracking-tight text-gray-900">Location</h3>
-              <p className="text-gray-500 leading-relaxed font-medium">College of Health Sciences (COHS) Auditorium<br />Federal University Lokoja, Adankolo Campus</p>
+              <p className="text-gray-500 leading-relaxed font-medium">{eventSettings.venue}<br />{eventSettings.venueAddress}</p>
             </motion.div>
             
             <motion.div 

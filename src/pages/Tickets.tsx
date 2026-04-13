@@ -78,6 +78,8 @@ export default function Tickets() {
     console.log('Payment closed');
   };
 
+  const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || "pk_test_your_paystack_public_key_here";
+
   const componentProps = {
     email: user?.email || '',
     amount: (selectedTicket?.price || 0) * 100, // Paystack expects kobo
@@ -92,7 +94,7 @@ export default function Tickets() {
         }
       ]
     },
-    publicKey: "pk_test_your_paystack_public_key_here", // Replace with actual key or env var
+    publicKey: paystackKey,
     text: "Pay Now",
     onSuccess: handleSuccess,
     onClose: handleClose,

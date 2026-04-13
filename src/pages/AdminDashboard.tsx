@@ -1,9 +1,17 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, addDoc, onSnapshot, serverTimestamp, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, serverTimestamp, deleteDoc, doc, updateDoc, setDoc, getDoc, increment } from 'firebase/firestore';
 import { motion } from 'motion/react';
-import { Plus, Trash2, Shield, ShieldAlert, Search } from 'lucide-react';
+import { Plus, Trash2, Shield, ShieldAlert, Search, Save } from 'lucide-react';
+
+interface EventSettings {
+  date: string;
+  time: string;
+  venue: string;
+  venueAddress: string;
+  countdownTarget: string;
+}
 
 interface TicketType {
   id: string;
@@ -82,7 +90,15 @@ export default function AdminDashboard() {
   const [sponsorApps, setSponsorApps] = useState<SponsorApplication[]>([]);
   const [merchItems, setMerchItems] = useState<MerchItem[]>([]);
   const [merchOrders, setMerchOrders] = useState<MerchOrder[]>([]);
-  const [activeTab, setActiveTab] = useState<'tickets' | 'users' | 'speakers' | 'speakerApps' | 'sponsorApps' | 'merch' | 'merchOrders'>('tickets');
+  const [eventSettings, setEventSettings] = useState<EventSettings>({
+    date: '16th May, 2026',
+    time: '9:00 AM - 5:00 PM',
+    venue: 'College of Health Sciences (COHS) Auditorium',
+    venueAddress: 'Federal University Lokoja, Adankolo Campus',
+    countdownTarget: '2026-05-16T09:00:00'
+  });
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [activeTab, setActiveTab] = useState<'tickets' | 'users' | 'speakers' | 'speakerApps' | 'sponsorApps' | 'merch' | 'merchOrders' | 'settings'>('tickets');
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [editingTicketId, setEditingTicketId] = useState<string | null>(null);
@@ -180,6 +196,18 @@ export default function AdminDashboard() {
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'merchOrders');
     });
+
+    const fetchSettings = async () => {
+      try {
+        const settingsDoc = await getDoc(doc(db, 'settings', 'eventDetails'));
+        if (settingsDoc.exists()) {
+          setEventSettings(settingsDoc.data() as EventSettings);
+        }
+      } catch (error) {
+        console.error("Error fetching event settings:", error);
+      }
+    };
+    fetchSettings();
 
     return () => {
       unsubscribeTickets();
@@ -358,6 +386,19 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingSettings(true);
+    try {
+      await setDoc(doc(db, 'settings', 'eventDetails'), eventSettings);
+      alert('Event settings saved successfully!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'settings/eventDetails');
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-12">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
@@ -450,6 +491,12 @@ export default function AdminDashboard() {
           className={`pb-4 font-medium transition-colors ${activeTab === 'merchOrders' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
         >
           Merch Orders
+        </button>
+        <button
+          onClick={() => setActiveTab('settings')}
+          className={`pb-4 font-medium transition-colors ${activeTab === 'settings' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
+        >
+          Event Settings
         </button>
       </div>
 
@@ -1015,6 +1062,78 @@ export default function AdminDashboard() {
               )}
             </tbody>
           </table>
+        </div>
+      ) : activeTab === 'settings' ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 max-w-2xl">
+          <h2 className="text-2xl font-bold mb-6">Event Settings</h2>
+          <form onSubmit={handleSaveSettings} className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium mb-2">Event Date</label>
+              <input 
+                type="text" 
+                value={eventSettings.date}
+                onChange={e => setEventSettings({...eventSettings, date: e.target.value})}
+                className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500"
+                placeholder="e.g., 16th May, 2026"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Event Time</label>
+              <input 
+                type="text" 
+                value={eventSettings.time}
+                onChange={e => setEventSettings({...eventSettings, time: e.target.value})}
+                className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500"
+                placeholder="e.g., 9:00 AM - 5:00 PM"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Venue Name</label>
+              <input 
+                type="text" 
+                value={eventSettings.venue}
+                onChange={e => setEventSettings({...eventSettings, venue: e.target.value})}
+                className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500"
+                placeholder="e.g., College of Health Sciences (COHS) Auditorium"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Venue Address</label>
+              <input 
+                type="text" 
+                value={eventSettings.venueAddress}
+                onChange={e => setEventSettings({...eventSettings, venueAddress: e.target.value})}
+                className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500"
+                placeholder="e.g., Federal University Lokoja, Adankolo Campus"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Countdown Target Date/Time (ISO Format)</label>
+              <input 
+                type="text" 
+                value={eventSettings.countdownTarget}
+                onChange={e => setEventSettings({...eventSettings, countdownTarget: e.target.value})}
+                className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 font-mono text-sm"
+                placeholder="e.g., 2026-05-16T09:00:00"
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">Used for the countdown timer on the homepage. Must be in YYYY-MM-DDTHH:mm:ss format.</p>
+            </div>
+            <div className="pt-4">
+              <button 
+                type="submit"
+                disabled={isSavingSettings}
+                className="bg-red-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-red-700 transition-colors flex items-center gap-2 disabled:opacity-70"
+              >
+                <Save size={20} />
+                {isSavingSettings ? 'Saving...' : 'Save Settings'}
+              </button>
+            </div>
+          </form>
         </div>
       ) : null}
     </div>

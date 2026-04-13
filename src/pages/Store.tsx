@@ -4,6 +4,7 @@ import { ShoppingBag, ShoppingCart } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, increment } from 'firebase/firestore';
+import { PaystackButton } from 'react-paystack';
 
 interface MerchItem {
   id: string;
@@ -20,6 +21,7 @@ export default function Store() {
   const [products, setProducts] = useState<MerchItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
+  const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || "pk_test_your_paystack_public_key_here";
 
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, 'merch'), (snapshot) => {
@@ -37,29 +39,18 @@ export default function Store() {
     return () => unsubscribe();
   }, []);
 
-  const handleBuyNow = async (product: MerchItem) => {
-    if (!profile) {
-      alert("Please log in to purchase merchandise.");
-      return;
-    }
-
-    if (product.available <= 0) {
-      alert("Sorry, this item is out of stock.");
-      return;
-    }
+  const handleSuccess = async (reference: any, product: MerchItem) => {
+    if (!profile) return;
 
     setPurchasingId(product.id);
     try {
-      // Simulate payment processing
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
       // Create order record
       await addDoc(collection(db, 'merchOrders'), {
         userId: profile.uid,
         merchId: product.id,
         amount: product.price,
         status: 'success',
-        reference: `MERCH-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+        reference: reference.reference,
         createdAt: serverTimestamp()
       });
 
@@ -162,20 +153,41 @@ export default function Store() {
                     <div className="text-sm text-gray-500 mb-4">
                       {product.available > 0 ? `${product.available} left in stock` : 'Out of stock'}
                     </div>
-                    <button 
-                      onClick={() => handleBuyNow(product)}
-                      disabled={product.available <= 0 || purchasingId === product.id}
-                      className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-medium transition-colors ${
-                        product.available <= 0 
-                          ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
-                          : purchasingId === product.id
-                            ? 'bg-gray-800 text-white cursor-wait'
+                    {profile ? (
+                      <PaystackButton 
+                        email={profile.email}
+                        amount={product.price * 100}
+                        metadata={{
+                          name: profile.displayName || '',
+                          custom_fields: [{ display_name: "Merch Item", variable_name: "merch_item", value: product.name }]
+                        }}
+                        publicKey={paystackKey}
+                        text={purchasingId === product.id ? 'Processing...' : 'Buy Now'}
+                        onSuccess={(reference: any) => handleSuccess(reference, product)}
+                        onClose={() => console.log('Payment closed')}
+                        disabled={product.available <= 0 || purchasingId === product.id}
+                        className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-medium transition-colors ${
+                          product.available <= 0 
+                            ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
+                            : purchasingId === product.id
+                              ? 'bg-gray-800 text-white cursor-wait'
+                              : 'bg-gray-900 hover:bg-red-600 text-white'
+                        }`}
+                      />
+                    ) : (
+                      <button 
+                        onClick={() => alert("Please log in to purchase merchandise.")}
+                        disabled={product.available <= 0}
+                        className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-medium transition-colors ${
+                          product.available <= 0 
+                            ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
                             : 'bg-gray-900 hover:bg-red-600 text-white'
-                      }`}
-                    >
-                      <ShoppingCart size={18} />
-                      {purchasingId === product.id ? 'Processing...' : 'Buy Now'}
-                    </button>
+                        }`}
+                      >
+                        <ShoppingCart size={18} />
+                        Login to Purchase
+                      </button>
+                    )}
                   </div>
                 </div>
               </motion.div>
