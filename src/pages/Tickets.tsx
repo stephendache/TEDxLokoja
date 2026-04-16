@@ -78,7 +78,7 @@ export default function Tickets() {
     console.log('Payment closed');
   };
 
-  const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || "pk_test_your_paystack_public_key_here";
+  const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
 
   const componentProps = {
     email: user?.email || '',
