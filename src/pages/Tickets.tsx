@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDoc, updateDoc, addDoc, serverTimestamp, query, where, getDocs, increment } from 'firebase/firestore';
 import { PaystackButton } from 'react-paystack';
-import { Ticket, CheckCircle, X } from 'lucide-react';
+import { Ticket, CheckCircle, X, Tag } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import SEO from '../components/SEO';
+import { QRCodeSVG } from 'qrcode.react';
 
 interface TicketType {
   id: string;
@@ -20,7 +22,10 @@ export default function Tickets() {
   const { user, profile, loginWithGoogle } = useAuth();
   const [tickets, setTickets] = useState<TicketType[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<TicketType | null>(null);
-  const [purchasedTicket, setPurchasedTicket] = useState<{name: string, reference: string, qrCodeUrl: string} | null>(null);
+  const [purchasedTicket, setPurchasedTicket] = useState<{name: string, reference: string} | null>(null);
+  const [couponCodeInput, setCouponCodeInput] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<{id: string, code: string, discount: number} | null>(null);
+  const [validatingCoupon, setValidatingCoupon] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, 'ticketTypes'), (snapshot) => {
@@ -39,38 +44,107 @@ export default function Tickets() {
     return () => unsubscribe();
   }, []);
 
+  const handleValidateCoupon = async () => {
+    if (!couponCodeInput.trim()) return;
+    setValidatingCoupon(true);
+    try {
+      const q = query(collection(db, 'coupons'), where('code', '==', couponCodeInput.toUpperCase().trim()));
+      const querySnapshot = await getDocs(q);
+      if (querySnapshot.empty) {
+        alert("Invalid coupon code.");
+        setAppliedCoupon(null);
+        return;
+      }
+      
+      const couponDoc = querySnapshot.docs[0];
+      const couponData = couponDoc.data();
+      
+      if (!couponData.active) {
+        alert("This coupon is no longer active.");
+        return;
+      }
+      if (couponData.currentUses >= couponData.maxUses) {
+        alert("This coupon has reached its maximum usage limit.");
+        return;
+      }
+      
+      setAppliedCoupon({
+        id: couponDoc.id,
+        code: couponData.code,
+        discount: couponData.discountPercentage
+      });
+      alert(`Coupon applied successfully: ${couponData.discountPercentage}% OFF!`);
+    } catch (error) {
+      console.error("Error validating coupon:", error);
+      alert("Error validating coupon. Please try again.");
+    } finally {
+      setValidatingCoupon(false);
+    }
+  };
+
+  const currentPrice = selectedTicket 
+    ? (appliedCoupon ? selectedTicket.price * (1 - (appliedCoupon.discount / 100)) : selectedTicket.price) 
+    : 0;
+
   const handleSuccess = async (reference: any) => {
     if (!user || !selectedTicket) return;
 
     try {
-      const response = await fetch('/api/confirm-payment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: user.uid,
-          ticketTypeId: selectedTicket.id,
-          amount: selectedTicket.price,
-          reference: reference.reference,
-          email: user.email,
-          name: profile?.displayName || user.email,
-          ticketName: selectedTicket.name
-        })
+      // 1. Write purchase to Firestore locally (works even on static AWS host!)
+      await addDoc(collection(db, 'purchases'), {
+        userId: user.uid,
+        userName: profile?.displayName || user.email,
+        userEmail: user.email,
+        ticketTypeId: selectedTicket.id,
+        ticketName: selectedTicket.name,
+        amount: currentPrice,
+        status: 'success',
+        reference: reference.reference,
+        createdAt: serverTimestamp()
       });
 
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to confirm payment');
+      // 2. Decrement ticket available locally
+      await updateDoc(doc(db, 'ticketTypes', selectedTicket.id), {
+        available: increment(-1)
+      });
+
+      // 3. Mark coupon as used locally
+      if (appliedCoupon) {
+        await updateDoc(doc(db, 'coupons', appliedCoupon.id), {
+          currentUses: increment(1)
+        });
+      }
+
+      // 4. Optionally tell backend to send email (ignore if it fails on static hosts)
+      try {
+        fetch('/api/confirm-payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: user.uid,
+            ticketTypeId: selectedTicket.id,
+            amount: currentPrice,
+            reference: reference.reference,
+            email: user.email,
+            name: profile?.displayName || user.email,
+            ticketName: selectedTicket.name
+          })
+        });
+      } catch (e) {
+        // Silently ignore backend fetch errors so static hosting still allows users to checkout
+        console.warn("Backend email failed, but purchase was recorded locally.");
       }
 
       setPurchasedTicket({
         name: selectedTicket.name,
-        reference: reference.reference,
-        qrCodeUrl: result.qrCodeUrl
+        reference: reference.reference
       });
       setSelectedTicket(null);
+      setAppliedCoupon(null);
+      setCouponCodeInput('');
     } catch (error) {
       console.error("Payment confirmation failed", error);
-      alert("There was an issue confirming your payment. Please contact support.");
+      alert("Payment was successful but we couldn't properly record it. Please contact support with reference: " + reference.reference);
     }
   };
 
@@ -78,11 +152,11 @@ export default function Tickets() {
     console.log('Payment closed');
   };
 
-  const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
+  const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || "pk_test_your_paystack_public_key_here";
 
   const componentProps = {
     email: user?.email || '',
-    amount: (selectedTicket?.price || 0) * 100, // Paystack expects kobo
+    amount: Math.round(currentPrice * 100), // Paystack expects kobo, prevent decimals
     metadata: {
       name: profile?.displayName || '',
       phone: '',
@@ -102,6 +176,10 @@ export default function Tickets() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-20">
+      <SEO 
+        title="Tickets" 
+        description="Secure your spot at TEDx Lokoja 2026. Purchase your tickets online and join us for a day of inspiration and innovation."
+      />
       <div className="text-center mb-16">
         <h1 className="text-4xl md:text-5xl font-bold mb-4">Get Your Tickets</h1>
         <p className="text-xl text-gray-600">Secure your spot at TEDx Lokoja 2026.</p>
@@ -131,20 +209,54 @@ export default function Tickets() {
               </div>
               <h2 className="text-2xl font-bold mb-2">{ticket.name}</h2>
               <p className="text-gray-500 mb-6 min-h-[3rem]">{ticket.description}</p>
-              <div className="text-4xl font-bold mb-8">
-                ₦{ticket.price.toLocaleString()}
-              </div>
+              
+              {selectedTicket?.id === ticket.id && appliedCoupon ? (
+                <div className="mb-8">
+                  <div className="text-xl text-gray-400 line-through">₦{ticket.price.toLocaleString()}</div>
+                  <div className="text-4xl font-bold text-red-600">
+                    ₦{Math.round(ticket.price * (1 - (appliedCoupon.discount / 100))).toLocaleString()}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-4xl font-bold mb-8">
+                  ₦{ticket.price.toLocaleString()}
+                </div>
+              )}
             </div>
 
             {user ? (
               selectedTicket?.id === ticket.id ? (
                 <div className="space-y-4">
+                  <div className="bg-gray-50 p-4 border rounded-xl mb-4">
+                    <label className="block text-sm font-medium mb-2 text-gray-700">Have a coupon code?</label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        value={couponCodeInput}
+                        onChange={(e) => setCouponCodeInput(e.target.value)}
+                        placeholder="ENTER CODE" 
+                        className="flex-grow p-2 border rounded-lg outline-none focus:ring-2 focus:ring-red-500 uppercase"
+                      />
+                      <button 
+                        onClick={handleValidateCoupon}
+                        disabled={validatingCoupon}
+                        className="bg-black text-white px-4 rounded-lg font-medium hover:bg-gray-800 disabled:opacity-50"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+                  
                   <PaystackButton 
                     {...componentProps} 
                     className="w-full bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl font-bold transition-colors"
                   />
                   <button 
-                    onClick={() => setSelectedTicket(null)}
+                    onClick={() => {
+                      setSelectedTicket(null);
+                      setAppliedCoupon(null);
+                      setCouponCodeInput('');
+                    }}
                     className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 py-3 rounded-xl font-medium transition-colors"
                   >
                     Cancel
@@ -198,7 +310,7 @@ export default function Tickets() {
               <p className="text-gray-600 mb-6">Your ticket for <strong>{purchasedTicket.name}</strong> has been secured.</p>
               
               <div className="bg-gray-50 p-4 rounded-2xl inline-block mb-6 border border-gray-100">
-                <img src={purchasedTicket.qrCodeUrl} alt="Ticket QR Code" className="w-48 h-48 mx-auto" />
+                <QRCodeSVG value={purchasedTicket.reference} size={200} className="mx-auto" />
                 <p className="text-sm text-gray-500 mt-2 font-mono tracking-wider">{purchasedTicket.reference}</p>
               </div>
               

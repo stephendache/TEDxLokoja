@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { Target, Heart, Users, Lightbulb, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import SEO from '../components/SEO';
 
 export default function About() {
   const team = [
@@ -12,6 +13,10 @@ export default function About() {
 
   return (
     <div className="bg-white min-h-screen">
+      <SEO 
+        title="About Us" 
+        description="Learn about TEDx Lokoja, our mission, our values, and the passionate team working to bring ideas worth spreading to the heart of Kogi State."
+      />
       {/* Hero Section */}
       <section className="relative bg-black text-white py-32 overflow-hidden">
         <div className="absolute inset-0 opacity-20 bg-[url('https://picsum.photos/seed/tedx-about/1920/1080')] bg-cover bg-center" />

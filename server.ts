@@ -89,7 +89,7 @@ async function startServer() {
             </div>
             <p>Please present the QR code below at the event entrance:</p>
             <img src="${qrCodeDataUrl}" alt="Ticket QR Code" style="width: 200px; height: 200px;" />
-            <p>See you there!</p>  
+            <p>See you there!</p>
           </div>
         `,
       });

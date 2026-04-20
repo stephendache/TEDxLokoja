@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Mail, MapPin, Phone } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import SEO from '../components/SEO';
 
 export default function Contact() {
   const [eventSettings, setEventSettings] = useState({
@@ -26,6 +27,10 @@ export default function Contact() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-20">
+      <SEO 
+        title="Contact Us" 
+        description="Get in touch with the TEDx Lokoja team. We'd love to hear from you regarding tickets, sponsorships, or general inquiries."
+      />
       <div className="text-center mb-16">
         <h1 className="text-4xl md:text-5xl font-bold mb-4">Contact Us</h1>
         <p className="text-xl text-gray-600">Have questions? We'd love to hear from you.</p>

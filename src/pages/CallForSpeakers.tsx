@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { Mic, CheckCircle2 } from 'lucide-react';
+import SEO from '../components/SEO';
 
 export default function CallForSpeakers() {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -72,6 +73,10 @@ export default function CallForSpeakers() {
 
   return (
     <div className="bg-gray-50 min-h-screen py-20">
+      <SEO 
+        title="Call for Speakers" 
+        description="Have an idea worth spreading? Apply to speak at TEDx Lokoja 2026 and share your vision with our community."
+      />
       <div className="max-w-3xl mx-auto px-4">
         <div className="text-center mb-12">
           <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">

@@ -71,6 +71,29 @@ interface MerchItem {
   createdAt: any;
 }
 
+interface Purchase {
+  id: string;
+  userId: string;
+  ticketTypeId: string;
+  amount: number;
+  status: string;
+  reference: string;
+  createdAt: any;
+  userName?: string;
+  userEmail?: string;
+  ticketName?: string;
+}
+
+interface Coupon {
+  id: string;
+  code: string;
+  discountPercentage: number;
+  maxUses: number;
+  currentUses: number;
+  active: boolean;
+  createdAt: any;
+}
+
 interface MerchOrder {
   id: string;
   userId: string;
@@ -90,6 +113,8 @@ export default function AdminDashboard() {
   const [sponsorApps, setSponsorApps] = useState<SponsorApplication[]>([]);
   const [merchItems, setMerchItems] = useState<MerchItem[]>([]);
   const [merchOrders, setMerchOrders] = useState<MerchOrder[]>([]);
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [eventSettings, setEventSettings] = useState<EventSettings>({
     date: '16th May, 2026',
     time: '9:00 AM - 5:00 PM',
@@ -98,12 +123,13 @@ export default function AdminDashboard() {
     countdownTarget: '2026-05-16T09:00:00'
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
-  const [activeTab, setActiveTab] = useState<'tickets' | 'users' | 'speakers' | 'speakerApps' | 'sponsorApps' | 'merch' | 'merchOrders' | 'settings'>('tickets');
+  const [activeTab, setActiveTab] = useState<'tickets' | 'users' | 'speakers' | 'speakerApps' | 'sponsorApps' | 'merch' | 'merchOrders' | 'settings' | 'attendees' | 'coupons'>('tickets');
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [editingTicketId, setEditingTicketId] = useState<string | null>(null);
   const [isCreatingSpeaker, setIsCreatingSpeaker] = useState(false);
   const [isCreatingMerch, setIsCreatingMerch] = useState(false);
+  const [isCreatingCoupon, setIsCreatingCoupon] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -123,6 +149,11 @@ export default function AdminDashboard() {
     quantity: '',
     category: '',
     imageUrl: ''
+  });
+  const [couponFormData, setCouponFormData] = useState({
+    code: '',
+    discountPercentage: '',
+    maxUses: ''
   });
 
   useEffect(() => {
@@ -197,6 +228,26 @@ export default function AdminDashboard() {
       handleFirestoreError(error, OperationType.LIST, 'merchOrders');
     });
 
+    const unsubscribePurchases = onSnapshot(collection(db, 'purchases'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Purchase[];
+      setPurchases(data);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'purchases');
+    });
+
+    const unsubscribeCoupons = onSnapshot(collection(db, 'coupons'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Coupon[];
+      setCoupons(data);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'coupons');
+    });
+
     const fetchSettings = async () => {
       try {
         const settingsDoc = await getDoc(doc(db, 'settings', 'eventDetails'));
@@ -217,6 +268,8 @@ export default function AdminDashboard() {
       unsubscribeSponsorApps();
       unsubscribeMerch();
       unsubscribeMerchOrders();
+      unsubscribePurchases();
+      unsubscribeCoupons();
     };
   }, [profile]);
 
@@ -231,6 +284,8 @@ export default function AdminDashboard() {
   const filteredSponsorApps = sponsorApps.filter(a => a.companyName.toLowerCase().includes(lowerQuery) || a.contactName.toLowerCase().includes(lowerQuery) || a.email.toLowerCase().includes(lowerQuery));
   const filteredMerch = merchItems.filter(m => m.name.toLowerCase().includes(lowerQuery) || m.category.toLowerCase().includes(lowerQuery));
   const filteredMerchOrders = merchOrders.filter(o => o.userId.toLowerCase().includes(lowerQuery) || o.status.toLowerCase().includes(lowerQuery));
+  const filteredPurchases = purchases.filter(p => p.status === 'success' && (p.userName?.toLowerCase().includes(lowerQuery) || p.userEmail?.toLowerCase().includes(lowerQuery) || p.reference.toLowerCase().includes(lowerQuery) || p.ticketName?.toLowerCase().includes(lowerQuery)));
+  const filteredCoupons = coupons.filter(c => c.code.toLowerCase().includes(lowerQuery));
 
   const handleSaveTicket = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -386,6 +441,43 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleCreateCoupon = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await addDoc(collection(db, 'coupons'), {
+        code: couponFormData.code.toUpperCase().trim(),
+        discountPercentage: Number(couponFormData.discountPercentage),
+        maxUses: Number(couponFormData.maxUses),
+        currentUses: 0,
+        active: true,
+        createdAt: serverTimestamp()
+      });
+      setIsCreatingCoupon(false);
+      setCouponFormData({ code: '', discountPercentage: '', maxUses: '' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'coupons');
+      alert("Failed to create coupon");
+    }
+  };
+
+  const handleDeleteCoupon = async (id: string) => {
+    if (window.confirm('Are you sure you want to delete this coupon?')) {
+      try {
+        await deleteDoc(doc(db, 'coupons', id));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, `coupons/${id}`);
+      }
+    }
+  };
+
+  const handleToggleCoupon = async (id: string, currentStatus: boolean) => {
+    try {
+      await updateDoc(doc(db, 'coupons', id), { active: !currentStatus });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `coupons/${id}`);
+    }
+  };
+
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingSettings(true);
@@ -447,9 +539,24 @@ export default function AdminDashboard() {
             Add Merch
           </button>
         )}
+        {activeTab === 'coupons' && (
+          <button 
+            onClick={() => setIsCreatingCoupon(!isCreatingCoupon)}
+            className="bg-black text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-800"
+          >
+            <Plus size={20} />
+            Create Coupon
+          </button>
+        )}
       </div>
 
       <div className="flex gap-6 mb-8 border-b border-gray-200 overflow-x-auto whitespace-nowrap">
+        <button
+          onClick={() => setActiveTab('attendees')}
+          className={`pb-4 font-medium transition-colors ${activeTab === 'attendees' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
+        >
+          Attendees & Purchases
+        </button>
         <button
           onClick={() => setActiveTab('tickets')}
           className={`pb-4 font-medium transition-colors ${activeTab === 'tickets' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
@@ -491,6 +598,12 @@ export default function AdminDashboard() {
           className={`pb-4 font-medium transition-colors ${activeTab === 'merchOrders' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
         >
           Merch Orders
+        </button>
+        <button
+          onClick={() => setActiveTab('coupons')}
+          className={`pb-4 font-medium transition-colors ${activeTab === 'coupons' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
+        >
+          Coupons
         </button>
         <button
           onClick={() => setActiveTab('settings')}
@@ -1063,6 +1176,129 @@ export default function AdminDashboard() {
             </tbody>
           </table>
         </div>
+      ) : activeTab === 'attendees' ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="p-4 font-semibold">Attendee Name</th>
+                <th className="p-4 font-semibold">Email</th>
+                <th className="p-4 font-semibold">Ticket Type</th>
+                <th className="p-4 font-semibold">Amount Paid</th>
+                <th className="p-4 font-semibold">Reference</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredPurchases.map(purchase => (
+                <tr key={purchase.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                  <td className="p-4 font-medium">{purchase.userName || 'N/A'}</td>
+                  <td className="p-4 text-gray-600">{purchase.userEmail || purchase.userId}</td>
+                  <td className="p-4 text-gray-600">{purchase.ticketName || purchase.ticketTypeId}</td>
+                  <td className="p-4 font-medium text-green-600">₦{purchase.amount.toLocaleString()}</td>
+                  <td className="p-4 font-mono text-xs text-gray-500">{purchase.reference}</td>
+                </tr>
+              ))}
+              {filteredPurchases.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center text-gray-500">No attendees found.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : activeTab === 'coupons' ? (
+        <>
+          {isCreatingCoupon && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="bg-gray-50 p-6 rounded-2xl mb-8 border border-gray-200"
+            >
+              <h2 className="text-xl font-bold mb-4">Create New Coupon</h2>
+              <form onSubmit={handleCreateCoupon} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Coupon Code</label>
+                  <input 
+                    type="text" 
+                    value={couponFormData.code} 
+                    onChange={e => setCouponFormData({...couponFormData, code: e.target.value})}
+                    className="w-full p-2 border rounded-lg uppercase" 
+                    required placeholder="e.g., EARLYBIRD" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Discount (%)</label>
+                  <input 
+                    type="number" min="1" max="100" 
+                    value={couponFormData.discountPercentage} 
+                    onChange={e => setCouponFormData({...couponFormData, discountPercentage: e.target.value})}
+                    className="w-full p-2 border rounded-lg" 
+                    required placeholder="e.g., 20" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Max Uses</label>
+                  <input 
+                    type="number" min="1" 
+                    value={couponFormData.maxUses} 
+                    onChange={e => setCouponFormData({...couponFormData, maxUses: e.target.value})}
+                    className="w-full p-2 border rounded-lg" 
+                    required placeholder="e.g., 50" 
+                  />
+                </div>
+                <div className="md:col-span-3 flex justify-end gap-2 mt-2">
+                  <button type="button" onClick={() => setIsCreatingCoupon(false)} className="px-4 py-2 border rounded-lg">Cancel</button>
+                  <button type="submit" className="px-4 py-2 bg-red-600 text-white rounded-lg">Create Coupon</button>
+                </div>
+              </form>
+            </motion.div>
+          )}
+
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="p-4 font-semibold">Code</th>
+                  <th className="p-4 font-semibold">Discount</th>
+                  <th className="p-4 font-semibold">Uses</th>
+                  <th className="p-4 font-semibold">Status</th>
+                  <th className="p-4 font-semibold text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCoupons.map(coupon => (
+                  <tr key={coupon.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                    <td className="p-4 font-bold font-mono">{coupon.code}</td>
+                    <td className="p-4 text-red-600 font-medium">{coupon.discountPercentage}% OFF</td>
+                    <td className="p-4 text-gray-600">
+                      {coupon.currentUses} / {coupon.maxUses}
+                    </td>
+                    <td className="p-4">
+                      <button 
+                        onClick={() => handleToggleCoupon(coupon.id, coupon.active)}
+                        className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                          coupon.active ? 'bg-green-100 text-green-800 hover:bg-green-200' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                        }`}
+                      >
+                        {coupon.active ? 'Active' : 'Disabled'}
+                      </button>
+                    </td>
+                    <td className="p-4 text-right">
+                      <button onClick={() => handleDeleteCoupon(coupon.id)} className="text-red-500 hover:text-red-700 p-2">
+                        <Trash2 size={18} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {filteredCoupons.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="p-8 text-center text-gray-500">No coupons found.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
       ) : activeTab === 'settings' ? (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 max-w-2xl">
           <h2 className="text-2xl font-bold mb-6">Event Settings</h2>

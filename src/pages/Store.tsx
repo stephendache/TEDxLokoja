@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, increment } from 'firebase/firestore';
 import { PaystackButton } from 'react-paystack';
+import SEO from '../components/SEO';
 
 interface MerchItem {
   id: string;
@@ -70,6 +71,10 @@ export default function Store() {
 
   return (
     <div className="bg-gray-50 min-h-screen pb-24">
+      <SEO 
+        title="Official Merch" 
+        description="Wear your ideas. Support TEDx Lokoja by grabbing our exclusive 2026 'Start Where You Are' merchandise."
+      />
       {/* Hero Section */}
       <section className="bg-black text-white py-24">
         <div className="max-w-7xl mx-auto px-4 text-center">

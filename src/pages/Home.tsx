@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { Calendar, MapPin, Users, Mic, Lightbulb, Globe, ArrowRight, Twitter, Facebook, Linkedin, Link as LinkIcon, ChevronDown, ChevronUp } from 'lucide-react';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import SEO from '../components/SEO';
 
 const faqs = [
   { q: "What is the refund policy?", a: "All ticket sales are final. We do not offer refunds or exchanges, except in the event that the conference is entirely canceled." },
@@ -108,6 +109,10 @@ export default function Home() {
 
   return (
     <div>
+      <SEO 
+        title="Home" 
+        description="TEDx Lokoja is an independently organized TED event bringing together innovative thinkers and doers to share ideas worth spreading in Lokoja, Kogi State."
+      />
       {/* Hero Section */}
       <section className="relative bg-black text-white py-32 overflow-hidden">
         <div className="absolute inset-0 opacity-20 bg-[url('https://picsum.photos/seed/tedx/1920/1080')] bg-cover bg-center" />

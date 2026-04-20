@@ -2,100 +2,7 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // ===============================================================
-    // Assumed Data Model
-    // ===============================================================
-    //
-    // Collection: users
-    // Document ID: {userId}
-    // Fields:
-    //   - uid: string (required, immutable)
-    //   - email: string (required, immutable)
-    //   - displayName: string (optional)
-    //   - role: string (required, enum: ['admin', 'user'])
-    //   - createdAt: timestamp (required, immutable)
-    //
-    // Collection: ticketTypes
-    // Document ID: {ticketTypeId}
-    // Fields:
-    //   - name: string (required)
-    //   - description: string (optional)
-    //   - price: number (required)
-    //   - quantity: number (required)
-    //   - available: number (required)
-    //   - visibility: string (optional, enum: ['public', 'hidden'])
-    //   - createdAt: timestamp (required, immutable)
-    //
-    // Collection: purchases
-    // Document ID: {purchaseId}
-    // Fields:
-    //   - userId: string (required, immutable)
-    //   - ticketTypeId: string (required, immutable)
-    //   - amount: number (required, immutable)
-    //   - status: string (required, enum: ['pending', 'success', 'failed'])
-    //   - reference: string (required, immutable)
-    //   - createdAt: timestamp (required, immutable)
-    //
-    // Collection: speakers
-    // Document ID: {speakerId}
-    // Fields:
-    //   - name: string (required)
-    //   - role: string (required)
-    //   - bio: string (optional)
-    //   - imageUrl: string (optional)
-    //   - createdAt: timestamp (required, immutable)
-    //
-    // Collection: speakerApplications
-    // Document ID: {appId}
-    // Fields:
-    //   - name: string (required)
-    //   - email: string (required)
-    //   - phone: string (required)
-    //   - topic: string (required)
-    //   - description: string (required)
-    //   - pastExperience: string (optional)
-    //   - links: string (optional)
-    //   - status: string (required, enum: ['pending', 'reviewed', 'accepted', 'rejected'])
-    //   - createdAt: timestamp (required, immutable)
-    //
-    // Collection: sponsorApplications
-    // Document ID: {appId}
-    // Fields:
-    //   - companyName: string (required)
-    //   - contactName: string (required)
-    //   - email: string (required)
-    //   - phone: string (required)
-    //   - sponsorshipLevel: string (required)
-    //   - message: string (optional)
-    //   - status: string (required, enum: ['pending', 'contacted', 'confirmed', 'rejected'])
-    //   - createdAt: timestamp (required, immutable)
-    //
-    // Collection: merch
-    // Document ID: {merchId}
-    // Fields:
-    //   - name: string (required)
-    //   - price: number (required)
-    //   - quantity: number (required)
-    //   - available: number (required)
-    //   - category: string (required)
-    //   - imageUrl: string (optional)
-    //   - createdAt: timestamp (required, immutable)
-    //
-    // Collection: merchOrders
-    // Document ID: {orderId}
-    // Fields:
-    //   - userId: string (required, immutable)
-    //   - merchId: string (required, immutable)
-    //   - amount: number (required, immutable)
-    //   - status: string (required, enum: ['pending', 'success', 'failed'])
-    //   - reference: string (required, immutable)
-    //   - createdAt: timestamp (required, immutable)
-    //
-    // ===============================================================
 
-    // ===============================================================
-    // Helper Functions
-    // ===============================================================
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -112,199 +19,62 @@ service cloud.firestore {
       );
     }
 
-    function hasOnlyAllowedFields(fields) {
-      return request.resource.data.keys().hasOnly(fields);
-    }
-
-    function hasRequiredFields(fields) {
-      return request.resource.data.keys().hasAll(fields);
-    }
-
-    function isValidEmail(email) {
-      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
-    }
-
-    // ===============================================================
-    // Domain Validators
-    // ===============================================================
-    function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'role', 'createdAt']) &&
-             hasRequiredFields(['uid', 'email', 'role', 'createdAt']) &&
-             data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
-             isValidEmail(data.email) &&
-             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
-             data.role in ['admin', 'user'] &&
-             data.createdAt is timestamp;
-    }
-
-    function isValidTicketType(data) {
-      return hasOnlyAllowedFields(['name', 'description', 'price', 'quantity', 'available', 'visibility', 'createdAt']) &&
-             hasRequiredFields(['name', 'price', 'quantity', 'available', 'createdAt']) &&
-             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
-             (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
-             data.price is number && data.price >= 0 &&
-             data.quantity is number && data.quantity >= 0 &&
-             data.available is number && data.available >= 0 && data.available <= data.quantity &&
-             (!('visibility' in data) || data.visibility in ['public', 'hidden']) &&
-             data.createdAt is timestamp;
-    }
-
-    function isValidPurchase(data) {
-      return hasOnlyAllowedFields(['userId', 'ticketTypeId', 'amount', 'status', 'reference', 'createdAt']) &&
-             hasRequiredFields(['userId', 'ticketTypeId', 'amount', 'status', 'reference', 'createdAt']) &&
-             data.userId is string && data.userId.size() > 0 && data.userId.size() < 100 &&
-             data.ticketTypeId is string && data.ticketTypeId.size() > 0 && data.ticketTypeId.size() < 100 &&
-             data.amount is number && data.amount >= 0 &&
-             data.status in ['pending', 'success', 'failed'] &&
-             data.reference is string && data.reference.size() > 0 && data.reference.size() <= 200 &&
-             data.createdAt is timestamp;
-    }
-
-    function isValidSpeaker(data) {
-      return hasOnlyAllowedFields(['name', 'role', 'bio', 'imageUrl', 'createdAt']) &&
-             hasRequiredFields(['name', 'role', 'createdAt']) &&
-             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
-             data.role is string && data.role.size() > 0 && data.role.size() <= 100 &&
-             (!('bio' in data) || (data.bio is string && data.bio.size() <= 2000)) &&
-             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 1000)) &&
-             data.createdAt is timestamp;
-    }
-
-    function isValidSpeakerApp(data) {
-      return hasOnlyAllowedFields(['name', 'email', 'phone', 'topic', 'description', 'pastExperience', 'links', 'status', 'createdAt']) &&
-             hasRequiredFields(['name', 'email', 'phone', 'topic', 'description', 'status', 'createdAt']) &&
-             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
-             isValidEmail(data.email) &&
-             data.phone is string && data.phone.size() <= 20 &&
-             data.topic is string && data.topic.size() > 0 && data.topic.size() <= 200 &&
-             data.description is string && data.description.size() > 0 && data.description.size() <= 2000 &&
-             (!('pastExperience' in data) || (data.pastExperience is string && data.pastExperience.size() <= 2000)) &&
-             (!('links' in data) || (data.links is string && data.links.size() <= 1000)) &&
-             data.status in ['pending', 'reviewed', 'accepted', 'rejected'] &&
-             data.createdAt is timestamp;
-    }
-
-    function isValidSponsorApp(data) {
-      return hasOnlyAllowedFields(['companyName', 'contactName', 'email', 'phone', 'sponsorshipLevel', 'message', 'status', 'createdAt']) &&
-             hasRequiredFields(['companyName', 'contactName', 'email', 'phone', 'sponsorshipLevel', 'status', 'createdAt']) &&
-             data.companyName is string && data.companyName.size() > 0 && data.companyName.size() <= 100 &&
-             data.contactName is string && data.contactName.size() > 0 && data.contactName.size() <= 100 &&
-             isValidEmail(data.email) &&
-             data.phone is string && data.phone.size() <= 20 &&
-             data.sponsorshipLevel is string && data.sponsorshipLevel.size() > 0 && data.sponsorshipLevel.size() <= 50 &&
-             (!('message' in data) || (data.message is string && data.message.size() <= 2000)) &&
-             data.status in ['pending', 'contacted', 'confirmed', 'rejected'] &&
-             data.createdAt is timestamp;
-    }
-
-    function isValidMerchItem(data) {
-      return hasOnlyAllowedFields(['name', 'price', 'quantity', 'available', 'category', 'imageUrl', 'createdAt']) &&
-             hasRequiredFields(['name', 'price', 'quantity', 'available', 'category', 'createdAt']) &&
-             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
-             data.price is number && data.price >= 0 &&
-             data.quantity is number && data.quantity >= 0 &&
-             data.available is number && data.available >= 0 && data.available <= data.quantity &&
-             data.category is string && data.category.size() > 0 && data.category.size() <= 50 &&
-             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 1000)) &&
-             data.createdAt is timestamp;
-    }
-
-    function isValidMerchOrder(data) {
-      return hasOnlyAllowedFields(['userId', 'merchId', 'amount', 'status', 'reference', 'createdAt']) &&
-             hasRequiredFields(['userId', 'merchId', 'amount', 'status', 'reference', 'createdAt']) &&
-             data.userId is string && data.userId.size() > 0 && data.userId.size() < 100 &&
-             data.merchId is string && data.merchId.size() > 0 && data.merchId.size() < 100 &&
-             data.amount is number && data.amount >= 0 &&
-             data.status in ['pending', 'success', 'failed'] &&
-             data.reference is string && data.reference.size() > 0 && data.reference.size() <= 200 &&
-             data.createdAt is timestamp;
-    }
-
-    // ===============================================================
-    // Rules
-    // ===============================================================
-    
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create: if isAuthenticated() && 
-                    isOwner(userId) && 
-                    isValidUser(request.resource.data) && 
-                    request.resource.data.uid == userId &&
-                    (request.resource.data.role == 'user' || isAdmin());
-      allow update: if isAuthenticated() && 
-                    isValidUser(request.resource.data) && 
-                    request.resource.data.uid == resource.data.uid &&
-                    request.resource.data.email == resource.data.email &&
-                    request.resource.data.createdAt == resource.data.createdAt &&
-                    ((isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin());
+      allow create: if isAuthenticated() && isOwner(userId) && request.resource.data.uid == userId;
+      allow update: if isOwner(userId) || isAdmin();
     }
 
     match /ticketTypes/{ticketTypeId} {
-      allow read: if true; // Publicly readable so users can see tickets
-      allow create: if isAdmin() && isValidTicketType(request.resource.data);
-      allow update: if isAdmin() && isValidTicketType(request.resource.data) &&
-                    request.resource.data.createdAt == resource.data.createdAt;
+      allow read: if true;
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['available']));
       allow delete: if isAdmin();
     }
 
     match /purchases/{purchaseId} {
       allow read: if isOwner(resource.data.userId) || isAdmin();
-      allow create: if isAuthenticated() && 
-                    isOwner(request.resource.data.userId) &&
-                    isValidPurchase(request.resource.data);
-      allow update: if isAuthenticated() && 
-                    isValidPurchase(request.resource.data) &&
-                    request.resource.data.userId == resource.data.userId &&
-                    request.resource.data.ticketTypeId == resource.data.ticketTypeId &&
-                    request.resource.data.amount == resource.data.amount &&
-                    request.resource.data.reference == resource.data.reference &&
-                    request.resource.data.createdAt == resource.data.createdAt &&
-                    (isOwner(resource.data.userId) || isAdmin());
+      allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
+      allow update: if isAdmin();
+    }
+    
+    match /coupons/{couponId} {
+      allow read: if true; 
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentUses']));
     }
 
     match /speakers/{speakerId} {
       allow read: if true;
-      allow create: if isAdmin() && isValidSpeaker(request.resource.data);
-      allow update: if isAdmin() && isValidSpeaker(request.resource.data) &&
-                    request.resource.data.createdAt == resource.data.createdAt;
-      allow delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
     match /speakerApplications/{appId} {
-      allow create: if isValidSpeakerApp(request.resource.data);
-      allow read, delete: if isAdmin();
-      allow update: if isAdmin() && isValidSpeakerApp(request.resource.data) &&
-                    request.resource.data.createdAt == resource.data.createdAt;
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
     }
 
     match /sponsorApplications/{appId} {
-      allow create: if isValidSponsorApp(request.resource.data);
-      allow read, delete: if isAdmin();
-      allow update: if isAdmin() && isValidSponsorApp(request.resource.data) &&
-                    request.resource.data.createdAt == resource.data.createdAt;
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
     }
 
     match /merch/{merchId} {
       allow read: if true;
-      allow create: if isAdmin() && isValidMerchItem(request.resource.data);
-      allow update: if isAdmin() && isValidMerchItem(request.resource.data) &&
-                    request.resource.data.createdAt == resource.data.createdAt;
-      allow delete: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['available']));
     }
 
     match /merchOrders/{orderId} {
       allow read: if isOwner(resource.data.userId) || isAdmin();
-      allow create: if isAuthenticated() && 
-                    isOwner(request.resource.data.userId) &&
-                    isValidMerchOrder(request.resource.data);
-      allow update: if isAuthenticated() && 
-                    isValidMerchOrder(request.resource.data) &&
-                    request.resource.data.userId == resource.data.userId &&
-                    request.resource.data.merchId == resource.data.merchId &&
-                    request.resource.data.amount == resource.data.amount &&
-                    request.resource.data.reference == resource.data.reference &&
-                    request.resource.data.createdAt == resource.data.createdAt &&
-                    (isOwner(resource.data.userId) || isAdmin());
+      allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
+      allow update: if isAdmin();
+    }
+    
+    // Add settings collection just in case
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
   }
 }
