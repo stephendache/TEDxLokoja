@@ -2,12 +2,14 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db, googleProvider, handleFirestoreError, OperationType } from '../firebase';
+import toast from 'react-hot-toast';
 
 interface UserProfile {
   uid: string;
   email: string;
   displayName: string;
   role: 'admin' | 'user';
+  permissions?: string[];
   createdAt: any;
 }
 
@@ -68,13 +70,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loginWithGoogle = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
-    } catch (error) {
+      toast.success('Successfully logged in');
+    } catch (error: unknown) {
       console.error("Login failed", error);
+      toast.error(error instanceof Error ? error.message : 'Failed to login');
     }
   };
 
   const logout = async () => {
-    await signOut(auth);
+    try {
+      await signOut(auth);
+      toast.success('Successfully logged out');
+    } catch (error: unknown) {
+      console.error("Logout failed", error);
+      toast.error(error instanceof Error ? error.message : 'Failed to logout');
+    }
   };
 
   return (

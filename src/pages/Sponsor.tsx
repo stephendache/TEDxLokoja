@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { Globe, CheckCircle2 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import SEO from '../components/SEO';
 
 export default function Sponsor() {
@@ -32,9 +33,10 @@ export default function Sponsor() {
         createdAt: serverTimestamp()
       });
       setIsSuccess(true);
+      toast.success('Sponsorship application submitted successfully!');
     } catch (error) {
+      toast.error('There was an error submitting your application. Please try again.');
       handleFirestoreError(error, OperationType.CREATE, 'sponsorApplications');
-      alert('There was an error submitting your application. Please try again.');
     } finally {
       setIsSubmitting(false);
     }

@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { Toaster } from 'react-hot-toast';
 import Home from './pages/Home';
 import AdminDashboard from './pages/AdminDashboard';
 import Tickets from './pages/Tickets';
@@ -13,6 +14,7 @@ import Sponsor from './pages/Sponsor';
 import About from './pages/About';
 import Store from './pages/Store';
 import Profile from './pages/Profile';
+import NotFound from './pages/NotFound';
 import { LogOut, User, Twitter, Facebook, Linkedin, Instagram, ArrowRight } from 'lucide-react';
 
 function Navbar() {
@@ -34,6 +36,7 @@ function Navbar() {
           <span className="text-red-600">TEDx</span> Lokoja
         </Link>
         <div className="flex items-center gap-6">
+          <Link to="/" className="hover:text-red-500 transition-colors">Home</Link>
           <Link to="/about" className="hover:text-red-500 transition-colors">About</Link>
           <Link to="/tickets" className="hover:text-red-500 transition-colors">Tickets</Link>
           <Link to="/store" className="hover:text-red-500 transition-colors">Store</Link>
@@ -239,6 +242,7 @@ function AppRoutes() {
             <Route path="/contact" element={<PageWrapper><Contact /></PageWrapper>} />
             <Route path="/cfs" element={<PageWrapper><CallForSpeakers /></PageWrapper>} />
             <Route path="/sponsor" element={<PageWrapper><Sponsor /></PageWrapper>} />
+            <Route path="*" element={<PageWrapper><NotFound /></PageWrapper>} />
           </Routes>
         </AnimatePresence>
       </main>
@@ -250,6 +254,7 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
+      <Toaster position="top-center" toastOptions={{ duration: 4000, style: { background: '#333', color: '#fff' } }} />
       <Router>
         <AppRoutes />
       </Router>

@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Mail, MapPin, Phone } from 'lucide-react';
-import { db } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../firebase';
+import { doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import toast from 'react-hot-toast';
 import SEO from '../components/SEO';
 
 export default function Contact() {
@@ -10,6 +11,8 @@ export default function Contact() {
     venue: 'College of Health Sciences (COHS) Auditorium',
     venueAddress: 'Federal University Lokoja, Adankolo Campus'
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formData, setFormData] = useState({ name: '', email: '', message: '' });
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -24,6 +27,24 @@ export default function Contact() {
     };
     fetchSettings();
   }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await addDoc(collection(db, 'contactMessages'), {
+        ...formData,
+        createdAt: serverTimestamp()
+      });
+      toast.success('Message sent successfully!');
+      setFormData({ name: '', email: '', message: '' });
+    } catch (error) {
+      toast.error('Failed to send message. Please try again.');
+      handleFirestoreError(error, OperationType.CREATE, 'contactMessages');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-20">
@@ -44,21 +65,21 @@ export default function Contact() {
           className="bg-gray-50 p-8 rounded-3xl border border-gray-100"
         >
           <h2 className="text-2xl font-bold mb-6">Get in Touch</h2>
-          <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); alert('Message sent successfully!'); }}>
+          <form className="space-y-4" onSubmit={handleSubmit}>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-              <input type="text" required className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition-all" placeholder="Your name" />
+              <input type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition-all" placeholder="Your name" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input type="email" required className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition-all" placeholder="your@email.com" />
+              <input type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} required className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition-all" placeholder="your@email.com" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Message</label>
-              <textarea required rows={5} className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition-all" placeholder="How can we help you?"></textarea>
+              <textarea required value={formData.message} onChange={e => setFormData({...formData, message: e.target.value})} rows={5} className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-600 focus:border-transparent outline-none transition-all" placeholder="How can we help you?"></textarea>
             </div>
-            <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition-colors">
-              Send Message
+            <button type="submit" disabled={isSubmitting} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition-colors disabled:opacity-70">
+              {isSubmitting ? 'Sending...' : 'Send Message'}
             </button>
           </form>
         </motion.div>

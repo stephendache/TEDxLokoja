@@ -3,7 +3,25 @@ import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, addDoc, onSnapshot, serverTimestamp, deleteDoc, doc, updateDoc, setDoc, getDoc, increment } from 'firebase/firestore';
 import { motion } from 'motion/react';
-import { Plus, Trash2, Shield, ShieldAlert, Search, Save } from 'lucide-react';
+import { Plus, Trash2, Shield, ShieldAlert, Search, Save, ArrowUp, ArrowDown, Eye, EyeOff, Edit2, Settings, Download, CheckCircle, Circle, Filter } from 'lucide-react';
+import toast from 'react-hot-toast';
+import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
+const AVAILABLE_PERMISSIONS = [
+  { id: 'attendees', label: 'Attendees & Purchases' },
+  { id: 'tickets', label: 'Manage Tickets' },
+  { id: 'users', label: 'Manage Users' },
+  { id: 'speakers', label: 'Manage Speakers' },
+  { id: 'speakerApps', label: 'Speaker Apps' },
+  { id: 'sponsorApps', label: 'Sponsor Apps' },
+  { id: 'merch', label: 'Manage Merch' },
+  { id: 'merchOrders', label: 'Merch Orders' },
+  { id: 'coupons', label: 'Discount Codes' },
+  { id: 'teamMembers', label: 'Manage Team' },
+  { id: 'settings', label: 'Event Settings' }
+];
 
 interface EventSettings {
   date: string;
@@ -21,6 +39,7 @@ interface TicketType {
   quantity: number;
   available: number;
   visibility?: 'public' | 'hidden';
+  order?: number;
 }
 
 interface UserProfile {
@@ -28,6 +47,7 @@ interface UserProfile {
   email: string;
   displayName: string;
   role: 'admin' | 'user';
+  permissions?: string[];
   createdAt: any;
 }
 
@@ -82,6 +102,7 @@ interface Purchase {
   userName?: string;
   userEmail?: string;
   ticketName?: string;
+  checkedIn?: boolean;
 }
 
 interface Coupon {
@@ -104,6 +125,16 @@ interface MerchOrder {
   createdAt: any;
 }
 
+interface TeamMember {
+  id: string;
+  name: string;
+  role: string;
+  imageUrl?: string;
+  order?: number;
+  visibility?: 'public' | 'hidden';
+  createdAt: any;
+}
+
 export default function AdminDashboard() {
   const { profile, loading } = useAuth();
   const [tickets, setTickets] = useState<TicketType[]>([]);
@@ -114,7 +145,9 @@ export default function AdminDashboard() {
   const [merchItems, setMerchItems] = useState<MerchItem[]>([]);
   const [merchOrders, setMerchOrders] = useState<MerchOrder[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [ticketFilter, setTicketFilter] = useState<string>('all');
   const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [eventSettings, setEventSettings] = useState<EventSettings>({
     date: '16th May, 2026',
     time: '9:00 AM - 5:00 PM',
@@ -123,11 +156,15 @@ export default function AdminDashboard() {
     countdownTarget: '2026-05-16T09:00:00'
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
-  const [activeTab, setActiveTab] = useState<'tickets' | 'users' | 'speakers' | 'speakerApps' | 'sponsorApps' | 'merch' | 'merchOrders' | 'settings' | 'attendees' | 'coupons'>('tickets');
+  const [activeTab, setActiveTab] = useState<'tickets' | 'users' | 'speakers' | 'speakerApps' | 'sponsorApps' | 'merch' | 'merchOrders' | 'settings' | 'attendees' | 'coupons' | 'teamMembers'>('tickets');
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [editingTicketId, setEditingTicketId] = useState<string | null>(null);
+  const [editingTeamMemberId, setEditingTeamMemberId] = useState<string | null>(null);
+  const [permissionsModalUser, setPermissionsModalUser] = useState<UserProfile | null>(null);
+  const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
   const [isCreatingSpeaker, setIsCreatingSpeaker] = useState(false);
+  const [isCreatingTeamMember, setIsCreatingTeamMember] = useState(false);
   const [isCreatingMerch, setIsCreatingMerch] = useState(false);
   const [isCreatingCoupon, setIsCreatingCoupon] = useState(false);
   const [formData, setFormData] = useState({
@@ -142,6 +179,12 @@ export default function AdminDashboard() {
     role: '',
     bio: '',
     imageUrl: ''
+  });
+  const [teamMemberFormData, setTeamMemberFormData] = useState({
+    name: '',
+    role: '',
+    imageUrl: '',
+    visibility: 'public' as 'public' | 'hidden'
   });
   const [merchFormData, setMerchFormData] = useState({
     name: '',
@@ -248,6 +291,16 @@ export default function AdminDashboard() {
       handleFirestoreError(error, OperationType.LIST, 'coupons');
     });
 
+    const unsubscribeTeamMembers = onSnapshot(collection(db, 'teamMembers'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as TeamMember[];
+      setTeamMembers(data);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'teamMembers');
+    });
+
     const fetchSettings = async () => {
       try {
         const settingsDoc = await getDoc(doc(db, 'settings', 'eventDetails'));
@@ -270,6 +323,7 @@ export default function AdminDashboard() {
       unsubscribeMerchOrders();
       unsubscribePurchases();
       unsubscribeCoupons();
+      unsubscribeTeamMembers();
     };
   }, [profile]);
 
@@ -278,14 +332,31 @@ export default function AdminDashboard() {
 
   const lowerQuery = searchQuery.toLowerCase();
   const filteredTickets = tickets.filter(t => t.name.toLowerCase().includes(lowerQuery) || t.description?.toLowerCase().includes(lowerQuery));
+  const displayTickets = searchQuery ? filteredTickets : [...tickets].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
   const filteredUsers = users.filter(u => u.displayName?.toLowerCase().includes(lowerQuery) || u.email.toLowerCase().includes(lowerQuery) || u.role.toLowerCase().includes(lowerQuery));
   const filteredSpeakers = speakers.filter(s => s.name.toLowerCase().includes(lowerQuery) || s.role.toLowerCase().includes(lowerQuery));
   const filteredSpeakerApps = speakerApps.filter(a => a.name.toLowerCase().includes(lowerQuery) || a.email.toLowerCase().includes(lowerQuery) || a.topic.toLowerCase().includes(lowerQuery));
   const filteredSponsorApps = sponsorApps.filter(a => a.companyName.toLowerCase().includes(lowerQuery) || a.contactName.toLowerCase().includes(lowerQuery) || a.email.toLowerCase().includes(lowerQuery));
   const filteredMerch = merchItems.filter(m => m.name.toLowerCase().includes(lowerQuery) || m.category.toLowerCase().includes(lowerQuery));
   const filteredMerchOrders = merchOrders.filter(o => o.userId.toLowerCase().includes(lowerQuery) || o.status.toLowerCase().includes(lowerQuery));
-  const filteredPurchases = purchases.filter(p => p.status === 'success' && (p.userName?.toLowerCase().includes(lowerQuery) || p.userEmail?.toLowerCase().includes(lowerQuery) || p.reference.toLowerCase().includes(lowerQuery) || p.ticketName?.toLowerCase().includes(lowerQuery)));
+  const filteredPurchases = purchases.filter(p => {
+    const searchMatch = p.status === 'success' && (p.userName?.toLowerCase().includes(lowerQuery) || p.userEmail?.toLowerCase().includes(lowerQuery) || p.reference.toLowerCase().includes(lowerQuery) || p.ticketName?.toLowerCase().includes(lowerQuery));
+    const ticketMatch = ticketFilter === 'all' || p.ticketName === ticketFilter;
+    return searchMatch && ticketMatch;
+  });
+
+  const uniqueTicketTypes = Array.from(new Set(purchases.map(p => p.ticketName).filter(Boolean)));
   const filteredCoupons = coupons.filter(c => c.code.toLowerCase().includes(lowerQuery));
+  const filteredTeamMembers = teamMembers.filter(t => t.name.toLowerCase().includes(lowerQuery) || t.role.toLowerCase().includes(lowerQuery));
+  const displayTeamMembers = searchQuery 
+    ? filteredTeamMembers 
+    : [...teamMembers].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+
+  const hasPermission = (tabId: string) => {
+    if (profile?.role !== 'admin') return false;
+    if (!profile.permissions) return true;
+    return profile.permissions.includes(tabId);
+  };
 
   const handleSaveTicket = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -302,6 +373,7 @@ export default function AdminDashboard() {
           available: increment(quantityDiff),
           visibility: formData.visibility
         });
+        toast.success("Ticket updated successfully!");
       } else {
         await addDoc(collection(db, 'ticketTypes'), {
           name: formData.name,
@@ -310,14 +382,43 @@ export default function AdminDashboard() {
           quantity: Number(formData.quantity),
           available: Number(formData.quantity),
           visibility: formData.visibility,
+          order: tickets.length,
           createdAt: serverTimestamp()
         });
+        toast.success("Ticket created successfully!");
       }
       setIsCreating(false);
       setEditingTicketId(null);
       setFormData({ name: '', description: '', price: '', quantity: '', visibility: 'public' });
     } catch (error) {
+      toast.error("An error occurred");
       handleFirestoreError(error, editingTicketId ? OperationType.UPDATE : OperationType.CREATE, 'ticketTypes');
+    }
+  };
+
+  const handleMoveTicket = async (index: number, direction: 'up' | 'down') => {
+    const sorted = [...tickets].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+    if (direction === 'up' && index > 0) {
+      const temp = sorted[index];
+      sorted[index] = sorted[index - 1];
+      sorted[index - 1] = temp;
+    } else if (direction === 'down' && index < sorted.length - 1) {
+      const temp = sorted[index];
+      sorted[index] = sorted[index + 1];
+      sorted[index + 1] = temp;
+    } else {
+      return;
+    }
+
+    try {
+      await Promise.all(sorted.map((ticket, idx) => {
+        if (ticket.order !== idx) {
+          return updateDoc(doc(db, 'ticketTypes', ticket.id), { order: idx });
+        }
+      }));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'ticketTypes');
+      toast.error("Failed to reorder tickets");
     }
   };
 
@@ -339,7 +440,9 @@ export default function AdminDashboard() {
       await updateDoc(doc(db, 'ticketTypes', ticket.id), {
         visibility: newVisibility
       });
+      toast.success(`Ticket visibility set to ${newVisibility}`);
     } catch (error) {
+      toast.error("Failed to update visibility");
       handleFirestoreError(error, OperationType.UPDATE, `ticketTypes/${ticket.id}`);
     }
   };
@@ -348,6 +451,7 @@ export default function AdminDashboard() {
     if (window.confirm('Are you sure you want to delete this ticket type?')) {
       try {
         await deleteDoc(doc(db, 'ticketTypes', id));
+        toast.success("Ticket deleted");
       } catch (error) {
         handleFirestoreError(error, OperationType.DELETE, `ticketTypes/${id}`);
       }
@@ -366,7 +470,9 @@ export default function AdminDashboard() {
       });
       setIsCreatingSpeaker(false);
       setSpeakerFormData({ name: '', role: '', bio: '', imageUrl: '' });
+      toast.success("Speaker created successfully!");
     } catch (error) {
+      toast.error("An error occurred adding speaker");
       handleFirestoreError(error, OperationType.CREATE, 'speakers');
     }
   };
@@ -375,31 +481,202 @@ export default function AdminDashboard() {
     if (window.confirm('Are you sure you want to delete this speaker?')) {
       try {
         await deleteDoc(doc(db, 'speakers', id));
+        toast.success("Speaker deleted");
       } catch (error) {
         handleFirestoreError(error, OperationType.DELETE, `speakers/${id}`);
       }
     }
   };
 
-  const handleRoleChange = async (userId: string, currentRole: string) => {
-    if (userId === profile?.uid) {
-      alert("You cannot change your own role.");
+  const handleSaveTeamMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (editingTeamMemberId) {
+        await updateDoc(doc(db, 'teamMembers', editingTeamMemberId), {
+          name: teamMemberFormData.name,
+          role: teamMemberFormData.role,
+          imageUrl: teamMemberFormData.imageUrl || null,
+          visibility: teamMemberFormData.visibility,
+        });
+        toast.success("Team member updated successfully!");
+      } else {
+        await addDoc(collection(db, 'teamMembers'), {
+          name: teamMemberFormData.name,
+          role: teamMemberFormData.role,
+          imageUrl: teamMemberFormData.imageUrl || null,
+          visibility: teamMemberFormData.visibility,
+          order: teamMembers.length,
+          createdAt: serverTimestamp()
+        });
+        toast.success("Team member added successfully!");
+      }
+      setIsCreatingTeamMember(false);
+      setEditingTeamMemberId(null);
+      setTeamMemberFormData({ name: '', role: '', imageUrl: '', visibility: 'public' });
+    } catch (error) {
+      toast.error(`Failed to ${editingTeamMemberId ? 'update' : 'add'} team member`);
+      handleFirestoreError(error, editingTeamMemberId ? OperationType.UPDATE : OperationType.CREATE, editingTeamMemberId ? `teamMembers/${editingTeamMemberId}` : 'teamMembers');
+    }
+  };
+
+  const handleEditTeamMember = (member: TeamMember) => {
+    setTeamMemberFormData({
+      name: member.name,
+      role: member.role,
+      imageUrl: member.imageUrl || '',
+      visibility: member.visibility || 'public'
+    });
+    setEditingTeamMemberId(member.id);
+    setIsCreatingTeamMember(true);
+  };
+
+  const handleToggleTeamMemberVisibility = async (member: TeamMember) => {
+    try {
+      const newVisibility = member.visibility === 'hidden' ? 'public' : 'hidden';
+      await updateDoc(doc(db, 'teamMembers', member.id), {
+        visibility: newVisibility
+      });
+      toast.success(`Team member visibility set to ${newVisibility}`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `teamMembers/${member.id}`);
+      toast.error("Failed to update visibility");
+    }
+  };
+
+  const handleDeleteTeamMember = async (id: string) => {
+    if (window.confirm('Are you sure you want to remove this team member?')) {
+      try {
+        await deleteDoc(doc(db, 'teamMembers', id));
+        toast.success("Team member removed");
+      } catch (error) {
+        toast.error("Failed to remove team member");
+        handleFirestoreError(error, OperationType.DELETE, `teamMembers/${id}`);
+      }
+    }
+  };
+
+  const handleMoveTeamMember = async (index: number, direction: 'up' | 'down') => {
+    const sorted = [...teamMembers].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+    if (direction === 'up' && index > 0) {
+      const temp = sorted[index];
+      sorted[index] = sorted[index - 1];
+      sorted[index - 1] = temp;
+    } else if (direction === 'down' && index < sorted.length - 1) {
+      const temp = sorted[index];
+      sorted[index] = sorted[index + 1];
+      sorted[index + 1] = temp;
+    } else {
       return;
     }
-    const newRole = currentRole === 'admin' ? 'user' : 'admin';
-    if (window.confirm(`Are you sure you want to change this user's role to ${newRole}?`)) {
-      try {
-        await updateDoc(doc(db, 'users', userId), { role: newRole });
-      } catch (error) {
-        handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
+
+    try {
+      await Promise.all(sorted.map((member, idx) => {
+        if (member.order !== idx) {
+          return updateDoc(doc(db, 'teamMembers', member.id), { order: idx });
+        }
+      }));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'teamMembers');
+      toast.error("Failed to reorder team members");
+    }
+  };
+
+  const handleToggleCheckIn = async (purchaseId: string, currentStatus: boolean | undefined) => {
+    try {
+      await updateDoc(doc(db, 'purchases', purchaseId), { checkedIn: !currentStatus });
+      toast.success(currentStatus ? "Check-in removed" : "Checked in successfully");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'purchases');
+      toast.error("Failed to update check-in status");
+    }
+  };
+
+  const exportAttendeesExcel = () => {
+    const exportData = filteredPurchases.map(p => ({
+      Name: p.userName || 'N/A',
+      Email: p.userEmail || p.userId,
+      'Ticket Type': p.ticketName || p.ticketTypeId,
+      Amount: p.amount,
+      Reference: p.reference,
+      'Checked In': p.checkedIn ? 'Yes' : 'No',
+      Date: p.createdAt?.toDate ? p.createdAt.toDate().toLocaleString() : 'N/A'
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Attendees");
+    XLSX.writeFile(wb, "attendees-export.xlsx");
+  };
+
+  const exportAttendeesPDF = () => {
+    const doc = new jsPDF();
+    doc.text("Attendees Report", 14, 15);
+    
+    const tableColumn = ["Name", "Email", "Ticket", "Amount", "Ref", "Checked-in"];
+    const tableRows = filteredPurchases.map(p => [
+      p.userName || 'N/A',
+      p.userEmail || p.userId,
+      p.ticketName || p.ticketTypeId,
+      `₦${p.amount.toLocaleString()}`,
+      p.reference,
+      p.checkedIn ? 'Yes' : 'No'
+    ]);
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 20
+    });
+
+    doc.save("attendees-export.pdf");
+  };
+
+  const handleRoleChange = async (userId: string, currentRole: string) => {
+    if (userId === profile?.uid) {
+      toast.error("You cannot change your own role.");
+      return;
+    }
+    
+    if (currentRole === 'user') {
+      const u = users.find(user => user.uid === userId);
+      if (u) {
+        setPermissionsModalUser(u);
+        setSelectedPermissions(u.permissions || AVAILABLE_PERMISSIONS.map(p => p.id));
       }
+    } else {
+      if (window.confirm("Are you sure you want to revoke admin privileges?")) {
+        try {
+          await updateDoc(doc(db, 'users', userId), { role: 'user', permissions: [] });
+          toast.success("Admin privileges revoked");
+        } catch (error) {
+          toast.error("Failed to update user role");
+          handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
+        }
+      }
+    }
+  };
+
+  const handleSavePermissions = async () => {
+    if (!permissionsModalUser) return;
+    try {
+      await updateDoc(doc(db, 'users', permissionsModalUser.uid), {
+        role: 'admin',
+        permissions: selectedPermissions
+      });
+      toast.success("Admin role and permissions saved");
+      setPermissionsModalUser(null);
+    } catch (error) {
+      toast.error("Failed to save permissions");
+      handleFirestoreError(error, OperationType.UPDATE, `users/${permissionsModalUser.uid}`);
     }
   };
 
   const handleUpdateSponsorStatus = async (appId: string, newStatus: string) => {
     try {
       await updateDoc(doc(db, 'sponsorApplications', appId), { status: newStatus });
+      toast.success("Sponsorship status updated");
     } catch (error) {
+      toast.error("Failed to update status");
       handleFirestoreError(error, OperationType.UPDATE, `sponsorApplications/${appId}`);
     }
   };
@@ -407,7 +684,9 @@ export default function AdminDashboard() {
   const handleUpdateSpeakerAppStatus = async (appId: string, newStatus: string) => {
     try {
       await updateDoc(doc(db, 'speakerApplications', appId), { status: newStatus });
+      toast.success("Speaker application status updated");
     } catch (error) {
+      toast.error("Failed to update status");
       handleFirestoreError(error, OperationType.UPDATE, `speakerApplications/${appId}`);
     }
   };
@@ -426,7 +705,9 @@ export default function AdminDashboard() {
       });
       setIsCreatingMerch(false);
       setMerchFormData({ name: '', price: '', quantity: '', category: '', imageUrl: '' });
+      toast.success("Merch item created!");
     } catch (error) {
+      toast.error("Failed to add merch item");
       handleFirestoreError(error, OperationType.CREATE, 'merch');
     }
   };
@@ -435,6 +716,7 @@ export default function AdminDashboard() {
     if (window.confirm('Are you sure you want to delete this merch item?')) {
       try {
         await deleteDoc(doc(db, 'merch', id));
+        toast.success("Merch item deleted");
       } catch (error) {
         handleFirestoreError(error, OperationType.DELETE, `merch/${id}`);
       }
@@ -454,9 +736,10 @@ export default function AdminDashboard() {
       });
       setIsCreatingCoupon(false);
       setCouponFormData({ code: '', discountPercentage: '', maxUses: '' });
+      toast.success("Coupon created successfully!");
     } catch (error) {
+      toast.error("Failed to create coupon");
       handleFirestoreError(error, OperationType.CREATE, 'coupons');
-      alert("Failed to create coupon");
     }
   };
 
@@ -464,6 +747,7 @@ export default function AdminDashboard() {
     if (window.confirm('Are you sure you want to delete this coupon?')) {
       try {
         await deleteDoc(doc(db, 'coupons', id));
+        toast.success("Coupon deleted");
       } catch (error) {
         handleFirestoreError(error, OperationType.DELETE, `coupons/${id}`);
       }
@@ -473,6 +757,7 @@ export default function AdminDashboard() {
   const handleToggleCoupon = async (id: string, currentStatus: boolean) => {
     try {
       await updateDoc(doc(db, 'coupons', id), { active: !currentStatus });
+      toast.success(`Coupon ${currentStatus ? 'deactivated' : 'activated'}`);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `coupons/${id}`);
     }
@@ -483,8 +768,9 @@ export default function AdminDashboard() {
     setIsSavingSettings(true);
     try {
       await setDoc(doc(db, 'settings', 'eventDetails'), eventSettings);
-      alert('Event settings saved successfully!');
+      toast.success('Event settings saved successfully!');
     } catch (error) {
+      toast.error('Failed to save settings');
       handleFirestoreError(error, OperationType.UPDATE, 'settings/eventDetails');
     } finally {
       setIsSavingSettings(false);
@@ -493,6 +779,52 @@ export default function AdminDashboard() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-12">
+      {permissionsModalUser && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
+          >
+            <h2 className="text-xl font-bold mb-4">Manage Permissions for {permissionsModalUser.displayName || 'User'}</h2>
+            <p className="text-sm text-gray-500 mb-4">Select which modules this admin can access.</p>
+            <div className="space-y-3 mb-6">
+              {AVAILABLE_PERMISSIONS.map(permission => (
+                <label key={permission.id} className="flex items-center gap-3 cursor-pointer">
+                  <input 
+                    type="checkbox"
+                    checked={selectedPermissions.includes(permission.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedPermissions([...selectedPermissions, permission.id]);
+                      } else {
+                        setSelectedPermissions(selectedPermissions.filter(id => id !== permission.id));
+                      }
+                    }}
+                    className="w-5 h-5 rounded border-gray-300 text-red-600 focus:ring-red-500 disabled:opacity-50"
+                  />
+                  <span>{permission.label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-3">
+              <button 
+                onClick={() => setPermissionsModalUser(null)}
+                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleSavePermissions}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              >
+                Save Permissions
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
         <h1 className="text-3xl font-bold">Admin Dashboard</h1>
         <div className="relative w-full md:w-96">
@@ -548,72 +880,115 @@ export default function AdminDashboard() {
             Create Coupon
           </button>
         )}
+        {activeTab === 'teamMembers' && (
+          <button 
+            onClick={() => setIsCreatingTeamMember(!isCreatingTeamMember)}
+            className="bg-black text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-800"
+          >
+            <Plus size={20} />
+            Add Team Member
+          </button>
+        )}
       </div>
 
       <div className="flex gap-6 mb-8 border-b border-gray-200 overflow-x-auto whitespace-nowrap">
-        <button
-          onClick={() => setActiveTab('attendees')}
-          className={`pb-4 font-medium transition-colors ${activeTab === 'attendees' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
-        >
-          Attendees & Purchases
-        </button>
-        <button
-          onClick={() => setActiveTab('tickets')}
-          className={`pb-4 font-medium transition-colors ${activeTab === 'tickets' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
-        >
-          Manage Tickets
-        </button>
-        <button
-          onClick={() => setActiveTab('users')}
-          className={`pb-4 font-medium transition-colors ${activeTab === 'users' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
-        >
-          Manage Users
-        </button>
-        <button
-          onClick={() => setActiveTab('speakers')}
-          className={`pb-4 font-medium transition-colors ${activeTab === 'speakers' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
-        >
-          Manage Speakers
-        </button>
-        <button
-          onClick={() => setActiveTab('speakerApps')}
-          className={`pb-4 font-medium transition-colors ${activeTab === 'speakerApps' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
-        >
-          Speaker Apps
-        </button>
-        <button
-          onClick={() => setActiveTab('sponsorApps')}
-          className={`pb-4 font-medium transition-colors ${activeTab === 'sponsorApps' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
-        >
-          Sponsorships
-        </button>
-        <button
-          onClick={() => setActiveTab('merch')}
-          className={`pb-4 font-medium transition-colors ${activeTab === 'merch' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
-        >
-          Merch Inventory
-        </button>
-        <button
-          onClick={() => setActiveTab('merchOrders')}
-          className={`pb-4 font-medium transition-colors ${activeTab === 'merchOrders' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
-        >
-          Merch Orders
-        </button>
-        <button
-          onClick={() => setActiveTab('coupons')}
-          className={`pb-4 font-medium transition-colors ${activeTab === 'coupons' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
-        >
-          Coupons
-        </button>
-        <button
-          onClick={() => setActiveTab('settings')}
-          className={`pb-4 font-medium transition-colors ${activeTab === 'settings' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
-        >
-          Event Settings
-        </button>
+        {hasPermission('attendees') && (
+          <button
+            onClick={() => setActiveTab('attendees')}
+            className={`pb-4 font-medium transition-colors ${activeTab === 'attendees' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
+          >
+            Attendees & Purchases
+          </button>
+        )}
+        {hasPermission('tickets') && (
+          <button
+            onClick={() => setActiveTab('tickets')}
+            className={`pb-4 font-medium transition-colors ${activeTab === 'tickets' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
+          >
+            Manage Tickets
+          </button>
+        )}
+        {hasPermission('users') && (
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`pb-4 font-medium transition-colors ${activeTab === 'users' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
+          >
+            Manage Users
+          </button>
+        )}
+        {hasPermission('speakers') && (
+          <button
+            onClick={() => setActiveTab('speakers')}
+            className={`pb-4 font-medium transition-colors ${activeTab === 'speakers' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
+          >
+            Manage Speakers
+          </button>
+        )}
+        {hasPermission('speakerApps') && (
+          <button
+            onClick={() => setActiveTab('speakerApps')}
+            className={`pb-4 font-medium transition-colors ${activeTab === 'speakerApps' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
+          >
+            Speaker Apps
+          </button>
+        )}
+        {hasPermission('sponsorApps') && (
+          <button
+            onClick={() => setActiveTab('sponsorApps')}
+            className={`pb-4 font-medium transition-colors ${activeTab === 'sponsorApps' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
+          >
+            Sponsorships
+          </button>
+        )}
+        {hasPermission('merch') && (
+          <button
+            onClick={() => setActiveTab('merch')}
+            className={`pb-4 font-medium transition-colors ${activeTab === 'merch' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
+          >
+            Merch Inventory
+          </button>
+        )}
+        {hasPermission('merchOrders') && (
+          <button
+            onClick={() => setActiveTab('merchOrders')}
+            className={`pb-4 font-medium transition-colors ${activeTab === 'merchOrders' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
+          >
+            Merch Orders
+          </button>
+        )}
+        {hasPermission('coupons') && (
+          <button
+            onClick={() => setActiveTab('coupons')}
+            className={`pb-4 font-medium transition-colors ${activeTab === 'coupons' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
+          >
+            Coupons
+          </button>
+        )}
+        {hasPermission('settings') && (
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`pb-4 font-medium transition-colors ${activeTab === 'settings' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
+          >
+            Event Settings
+          </button>
+        )}
+        {hasPermission('teamMembers') && (
+          <button
+            onClick={() => setActiveTab('teamMembers')}
+            className={`pb-4 font-medium transition-colors ${activeTab === 'teamMembers' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
+          >
+            Manage Team
+          </button>
+        )}
       </div>
 
-      {activeTab === 'tickets' ? (
+      {!hasPermission(activeTab) ? (
+        <div className="py-20 text-center">
+          <ShieldAlert className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold mb-2">Access Denied</h2>
+          <p className="text-gray-500">You do not have permission to view this module.</p>
+        </div>
+      ) : activeTab === 'tickets' ? (
         <>
           {isCreating && (
         <motion.div 
@@ -710,7 +1085,7 @@ export default function AdminDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {filteredTickets.map(ticket => (
+                {displayTickets.map((ticket, index) => (
                   <tr key={ticket.id} className={`border-b border-gray-100 last:border-0 hover:bg-gray-50 ${ticket.visibility === 'hidden' ? 'opacity-75' : ''}`}>
                     <td className="p-4 font-medium">{ticket.name}</td>
                     <td className="p-4">₦{ticket.price.toLocaleString()}</td>
@@ -728,6 +1103,26 @@ export default function AdminDashboard() {
                       </button>
                     </td>
                     <td className="p-4 text-right">
+                      {!searchQuery && (
+                        <>
+                          <button 
+                            onClick={() => handleMoveTicket(index, 'up')}
+                            disabled={index === 0}
+                            className={`p-2 ${index === 0 ? 'text-gray-300' : 'text-gray-500 hover:text-gray-700'}`}
+                            title="Move Up"
+                          >
+                            <ArrowUp size={18} />
+                          </button>
+                          <button 
+                            onClick={() => handleMoveTicket(index, 'down')}
+                            disabled={index === displayTickets.length - 1}
+                            className={`p-2 mr-2 ${index === displayTickets.length - 1 ? 'text-gray-300' : 'text-gray-500 hover:text-gray-700'}`}
+                            title="Move Down"
+                          >
+                            <ArrowDown size={18} />
+                          </button>
+                        </>
+                      )}
                       <button 
                         onClick={() => handleEditTicket(ticket)}
                         className="text-blue-500 hover:text-blue-700 p-2 mr-2"
@@ -743,7 +1138,7 @@ export default function AdminDashboard() {
                     </td>
                   </tr>
                 ))}
-                {filteredTickets.length === 0 && (
+                {displayTickets.length === 0 && (
                   <tr>
                     <td colSpan={5} className="p-8 text-center text-gray-500">No tickets found.</td>
                   </tr>
@@ -773,11 +1168,23 @@ export default function AdminDashboard() {
                       {u.role}
                     </span>
                   </td>
-                  <td className="p-4 text-right">
+                  <td className="p-4 text-right flex items-center justify-end gap-4">
+                    {u.role === 'admin' && (
+                      <button
+                        onClick={() => {
+                          setPermissionsModalUser(u);
+                          setSelectedPermissions(u.permissions || AVAILABLE_PERMISSIONS.map(p => p.id));
+                        }}
+                        className="text-sm font-medium flex items-center gap-1 text-gray-600 hover:text-gray-900"
+                        title="Manage Permissions"
+                      >
+                        <Settings size={16} /> Permissions
+                      </button>
+                    )}
                     <button
                       onClick={() => handleRoleChange(u.uid, u.role)}
                       disabled={u.uid === profile?.uid}
-                      className={`text-sm font-medium flex items-center justify-end gap-1 w-full ${
+                      className={`text-sm font-medium flex items-center gap-1 ${
                         u.role === 'admin' ? 'text-red-600 hover:text-red-800' : 'text-blue-600 hover:text-blue-800'
                       } disabled:opacity-30 disabled:cursor-not-allowed`}
                     >
@@ -1177,34 +1584,83 @@ export default function AdminDashboard() {
           </table>
         </div>
       ) : activeTab === 'attendees' ? (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-          <table className="w-full text-left">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="p-4 font-semibold">Attendee Name</th>
-                <th className="p-4 font-semibold">Email</th>
-                <th className="p-4 font-semibold">Ticket Type</th>
-                <th className="p-4 font-semibold">Amount Paid</th>
-                <th className="p-4 font-semibold">Reference</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPurchases.map(purchase => (
-                <tr key={purchase.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                  <td className="p-4 font-medium">{purchase.userName || 'N/A'}</td>
-                  <td className="p-4 text-gray-600">{purchase.userEmail || purchase.userId}</td>
-                  <td className="p-4 text-gray-600">{purchase.ticketName || purchase.ticketTypeId}</td>
-                  <td className="p-4 font-medium text-green-600">₦{purchase.amount.toLocaleString()}</td>
-                  <td className="p-4 font-mono text-xs text-gray-500">{purchase.reference}</td>
-                </tr>
-              ))}
-              {filteredPurchases.length === 0 && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Filter size={18} className="text-gray-500" />
+              <select 
+                value={ticketFilter}
+                onChange={e => setTicketFilter(e.target.value)}
+                className="bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-red-500 focus:border-red-500 block w-full p-2.5"
+              >
+                <option value="all">All Ticket Types</option>
+                {uniqueTicketTypes.map(type => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="flex gap-2 w-full sm:w-auto">
+              <button 
+                onClick={exportAttendeesExcel}
+                className="flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition w-full sm:w-auto text-sm font-medium"
+              >
+                <Download size={16} />
+                Excel
+              </button>
+              <button 
+                onClick={exportAttendeesPDF}
+                className="flex items-center justify-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition w-full sm:w-auto text-sm font-medium"
+              >
+                <Download size={16} />
+                PDF
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-gray-500">No attendees found.</td>
+                  <th className="p-4 font-semibold">Attendee Name</th>
+                  <th className="p-4 font-semibold">Email</th>
+                  <th className="p-4 font-semibold">Ticket Type</th>
+                  <th className="p-4 font-semibold">Amount Paid</th>
+                  <th className="p-4 font-semibold">Reference</th>
+                  <th className="p-4 font-semibold text-center">Check-in</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredPurchases.map(purchase => (
+                  <tr key={purchase.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                    <td className="p-4 font-medium">{purchase.userName || 'N/A'}</td>
+                    <td className="p-4 text-gray-600">{purchase.userEmail || purchase.userId}</td>
+                    <td className="p-4 text-gray-600">{purchase.ticketName || purchase.ticketTypeId}</td>
+                    <td className="p-4 font-medium text-green-600">₦{purchase.amount.toLocaleString()}</td>
+                    <td className="p-4 font-mono text-xs text-gray-500">{purchase.reference}</td>
+                    <td className="p-4 text-center">
+                      <button 
+                        onClick={() => handleToggleCheckIn(purchase.id, purchase.checkedIn)}
+                        className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold ${
+                          purchase.checkedIn 
+                            ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        {purchase.checkedIn ? <CheckCircle size={14} /> : <Circle size={14} />}
+                        {purchase.checkedIn ? 'Checked in' : 'Check in'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {filteredPurchases.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-gray-500">No attendees found.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : activeTab === 'coupons' ? (
         <>
@@ -1371,6 +1827,167 @@ export default function AdminDashboard() {
             </div>
           </form>
         </div>
+      ) : activeTab === 'teamMembers' ? (
+        <>
+          {isCreatingTeamMember && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="bg-gray-50 p-6 rounded-2xl mb-8 border border-gray-200"
+            >
+              <h2 className="text-xl font-bold mb-4">{editingTeamMemberId ? 'Edit Team Member' : 'Add Team Member'}</h2>
+              <form onSubmit={handleSaveTeamMember} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Name</label>
+                  <input 
+                    required
+                    type="text" 
+                    value={teamMemberFormData.name}
+                    onChange={e => setTeamMemberFormData({...teamMemberFormData, name: e.target.value})}
+                    className="w-full p-2 border rounded-lg"
+                    placeholder="e.g. John Doe"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Role / Title</label>
+                  <input 
+                    required
+                    type="text" 
+                    value={teamMemberFormData.role}
+                    onChange={e => setTeamMemberFormData({...teamMemberFormData, role: e.target.value})}
+                    className="w-full p-2 border rounded-lg"
+                    placeholder="e.g. Organizer"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Visibility</label>
+                  <select 
+                    value={teamMemberFormData.visibility}
+                    onChange={e => setTeamMemberFormData({...teamMemberFormData, visibility: e.target.value as 'public' | 'hidden'})}
+                    className="w-full p-2 border rounded-lg"
+                  >
+                    <option value="public">Public</option>
+                    <option value="hidden">Hidden</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Image URL (Optional)</label>
+                  <input 
+                    type="url" 
+                    value={teamMemberFormData.imageUrl}
+                    onChange={e => setTeamMemberFormData({...teamMemberFormData, imageUrl: e.target.value})}
+                    className="w-full p-2 border rounded-lg"
+                    placeholder="https://example.com/image.jpg"
+                  />
+                </div>
+                <div className="md:col-span-2 flex justify-end gap-2 mt-2">
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                        setIsCreatingTeamMember(false);
+                        setEditingTeamMemberId(null);
+                        setTeamMemberFormData({ name: '', role: '', imageUrl: '', visibility: 'public' });
+                    }}
+                    className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit"
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  >
+                    {editingTeamMemberId ? 'Update Team Member' : 'Save Team Member'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          )}
+
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="p-4 font-semibold">Image</th>
+                  <th className="p-4 font-semibold">Name</th>
+                  <th className="p-4 font-semibold">Role</th>
+                  <th className="p-4 font-semibold text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayTeamMembers.map((member, index) => (
+                  <tr key={member.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                    <td className="p-4">
+                      {member.imageUrl ? (
+                        <img src={member.imageUrl} alt={member.name} className="w-10 h-10 rounded-full object-cover" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 font-bold">
+                          {member.name.charAt(0)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-4 font-medium">
+                      {member.name}
+                      {member.visibility === 'hidden' && (
+                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                          Hidden
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-4 text-gray-600">{member.role}</td>
+                    <td className="p-4 text-right">
+                      {!searchQuery && (
+                        <>
+                          <button 
+                            onClick={() => handleMoveTeamMember(index, 'up')}
+                            disabled={index === 0}
+                            className={`p-2 ${index === 0 ? 'text-gray-300' : 'text-gray-500 hover:text-gray-700'}`}
+                            title="Move Up"
+                          >
+                            <ArrowUp size={18} />
+                          </button>
+                          <button 
+                            onClick={() => handleMoveTeamMember(index, 'down')}
+                            disabled={index === displayTeamMembers.length - 1}
+                            className={`p-2 mr-2 ${index === displayTeamMembers.length - 1 ? 'text-gray-300' : 'text-gray-500 hover:text-gray-700'}`}
+                            title="Move Down"
+                          >
+                            <ArrowDown size={18} />
+                          </button>
+                        </>
+                      )}
+                      <button 
+                        onClick={() => handleToggleTeamMemberVisibility(member)}
+                        className="text-gray-500 hover:text-gray-700 p-2"
+                        title={member.visibility === 'hidden' ? 'Make Public' : 'Make Hidden'}
+                      >
+                        {member.visibility === 'hidden' ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                      <button 
+                        onClick={() => handleEditTeamMember(member)}
+                        className="text-blue-500 hover:text-blue-700 p-2 border-l border-gray-200 ml-2 pl-4"
+                        title="Edit Team Member"
+                      >
+                        <Edit2 size={18} />
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteTeamMember(member.id)}
+                        className="text-red-500 hover:text-red-700 p-2"
+                        title="Delete Team Member"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {displayTeamMembers.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="p-8 text-center text-gray-500">No team members found.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
       ) : null}
     </div>
   );

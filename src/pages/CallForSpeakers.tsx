@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { Mic, CheckCircle2 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import SEO from '../components/SEO';
 
 export default function CallForSpeakers() {
@@ -34,9 +35,10 @@ export default function CallForSpeakers() {
         createdAt: serverTimestamp()
       });
       setIsSuccess(true);
+      toast.success('Application submitted successfully!');
     } catch (error) {
+      toast.error('There was an error submitting your application. Please try again.');
       handleFirestoreError(error, OperationType.CREATE, 'speakerApplications');
-      alert('There was an error submitting your application. Please try again.');
     } finally {
       setIsSubmitting(false);
     }

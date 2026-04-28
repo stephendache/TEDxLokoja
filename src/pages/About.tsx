@@ -1,15 +1,42 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Target, Heart, Users, Lightbulb, ArrowRight } from 'lucide-react';
+import { Target, Heart, Users, Lightbulb, ArrowRight, User } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import SEO from '../components/SEO';
+import { db, handleFirestoreError, OperationType } from '../firebase';
+import { collection, onSnapshot } from 'firebase/firestore';
+
+interface TeamMember {
+  id: string;
+  name: string;
+  role: string;
+  imageUrl?: string;
+  order?: number;
+  visibility?: 'public' | 'hidden';
+  createdAt: any;
+}
 
 export default function About() {
-  const team = [
-    { name: 'Paul Stephen Edache', role: 'Lead Organizer', image: 'https://picsum.photos/seed/paul/400/400' },
-    { name: 'Jane Doe', role: 'Co-Organizer', image: 'https://picsum.photos/seed/jane/400/400' },
-    { name: 'John Smith', role: 'Curation Lead', image: 'https://picsum.photos/seed/john/400/400' },
-    { name: 'Sarah Johnson', role: 'Communications', image: 'https://picsum.photos/seed/sarah/400/400' },
-  ];
+  const [team, setTeam] = useState<TeamMember[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'teamMembers'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as TeamMember[];
+      
+      const visibleMembers = data.filter(member => member.visibility !== 'hidden');
+      setTeam(visibleMembers.sort((a, b) => (a.order ?? 999) - (b.order ?? 999)));
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'teamMembers');
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   return (
     <div className="bg-white min-h-screen">
@@ -136,22 +163,30 @@ export default function About() {
             transition={{ duration: 0.5, staggerChildren: 0.1 }}
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8"
           >
-            {team.map((member, index) => (
+            {loading ? (
+              <div className="col-span-full py-12 text-center text-gray-500">Loading team members...</div>
+            ) : team.length === 0 ? (
+              <div className="col-span-full py-12 text-center text-gray-500">No team members to display.</div>
+            ) : team.map((member, index) => (
               <motion.div 
-                key={index}
+                key={member.id}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: index * 0.1 }}
                 className="group"
               >
-                <div className="aspect-square rounded-3xl overflow-hidden mb-4 bg-gray-100">
-                  <img 
-                    src={member.image} 
-                    alt={member.name} 
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                    referrerPolicy="no-referrer"
-                  />
+                <div className="aspect-square rounded-3xl overflow-hidden mb-4 bg-gray-100 flex items-center justify-center">
+                  {member.imageUrl ? (
+                    <img 
+                      src={member.imageUrl} 
+                      alt={member.name} 
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <User size={64} className="text-gray-300" />
+                  )}
                 </div>
                 <h3 className="text-xl font-bold">{member.name}</h3>
                 <p className="text-red-600 font-medium text-sm">{member.role}</p>

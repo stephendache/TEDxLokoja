@@ -1,0 +1,17 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[[redirects]]
+  # Redirect API requests back to our Netlify Functions properly if needed
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+[[redirects]]
+  # This is MANDATORY for React Single Page Applications on Netlify
+  # It routes all non-API paths back to index.html so React Router works!
+  from = "/*"
+  to = "/index.html"
+  status = 200

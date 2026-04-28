@@ -1,15 +1,50 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { doc, updateDoc } from 'firebase/firestore';
-import { User, Mail, Calendar, Edit2, Save, X } from 'lucide-react';
+import { doc, updateDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
+import { User, Mail, Calendar, Edit2, Save, X, Ticket } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export default function Profile() {
   const { user, profile } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [displayName, setDisplayName] = useState(profile?.displayName || '');
   const [isSaving, setIsSaving] = useState(false);
+  const [purchases, setPurchases] = useState<any[]>([]);
+  const [loadingPurchases, setLoadingPurchases] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const q = query(
+      collection(db, 'purchases'),
+      where('userId', '==', user.uid),
+      where('status', '==', 'success')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const purchasedData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      // Sort locally by createdAt desc
+      purchasedData.sort((a: any, b: any) => {
+        const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+        const bTime = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+        return bTime - aTime;
+      });
+
+      setPurchases(purchasedData);
+      setLoadingPurchases(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'purchases');
+      setLoadingPurchases(false);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   if (!user || !profile) {
     return (
@@ -27,8 +62,10 @@ export default function Profile() {
       await updateDoc(doc(db, 'users', user.uid), {
         displayName: displayName.trim()
       });
+      toast.success('Profile updated successfully!');
       setIsEditing(false);
     } catch (error) {
+      toast.error('Failed to update profile. Please try again.');
       handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
     } finally {
       setIsSaving(false);
@@ -126,6 +163,53 @@ export default function Profile() {
                 <p className="text-sm text-gray-500 font-medium">Member Since</p>
                 <p className="text-gray-900 font-medium">{joinDate}</p>
               </div>
+            </div>
+          </div>
+
+          <div className="mt-12">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+              <Ticket size={24} className="text-red-600" />
+              Purchase History
+            </h2>
+            
+            <div className="bg-gray-50 rounded-2xl border border-gray-100 p-6 overflow-hidden">
+              {loadingPurchases ? (
+                <div className="flex justify-center p-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-red-600"></div>
+                </div>
+              ) : purchases.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">You haven't purchased any tickets yet.</p>
+              ) : (
+                <div className="space-y-4">
+                  {purchases.map(purchase => (
+                    <div key={purchase.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div>
+                        <h4 className="font-bold text-gray-900">{purchase.ticketName}</h4>
+                        <p className="text-sm text-gray-500">
+                          {purchase.createdAt?.toDate 
+                            ? purchase.createdAt.toDate().toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })
+                            : 'Unknown Date'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="bg-green-100 text-green-700 font-semibold px-3 py-1 rounded-full text-sm flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                          Successful
+                        </div>
+                        <div className="text-sm font-mono text-gray-400 bg-gray-50 px-2 py-1 rounded border border-gray-200">
+                          {purchase.reference}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

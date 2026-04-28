@@ -5,6 +5,7 @@ import { collection, onSnapshot, doc, getDoc, updateDoc, addDoc, serverTimestamp
 import { PaystackButton } from 'react-paystack';
 import { Ticket, CheckCircle, X, Tag } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import toast from 'react-hot-toast';
 import SEO from '../components/SEO';
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -16,6 +17,7 @@ interface TicketType {
   quantity: number;
   available: number;
   visibility?: 'public' | 'hidden';
+  order?: number;
 }
 
 export default function Tickets() {
@@ -34,9 +36,9 @@ export default function Tickets() {
         ...doc.data()
       })) as TicketType[];
       
-      // Filter out hidden tickets
+      // Filter out hidden tickets and sort
       const publicTickets = ticketData.filter(t => t.visibility !== 'hidden');
-      setTickets(publicTickets);
+      setTickets(publicTickets.sort((a, b) => (a.order ?? 999) - (b.order ?? 999)));
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'ticketTypes');
     });
@@ -51,7 +53,7 @@ export default function Tickets() {
       const q = query(collection(db, 'coupons'), where('code', '==', couponCodeInput.toUpperCase().trim()));
       const querySnapshot = await getDocs(q);
       if (querySnapshot.empty) {
-        alert("Invalid coupon code.");
+        toast.error("Invalid coupon code.");
         setAppliedCoupon(null);
         return;
       }
@@ -60,11 +62,11 @@ export default function Tickets() {
       const couponData = couponDoc.data();
       
       if (!couponData.active) {
-        alert("This coupon is no longer active.");
+        toast.error("This coupon is no longer active.");
         return;
       }
       if (couponData.currentUses >= couponData.maxUses) {
-        alert("This coupon has reached its maximum usage limit.");
+        toast.error("This coupon has reached its maximum usage limit.");
         return;
       }
       
@@ -73,10 +75,11 @@ export default function Tickets() {
         code: couponData.code,
         discount: couponData.discountPercentage
       });
-      alert(`Coupon applied successfully: ${couponData.discountPercentage}% OFF!`);
+      toast.success(`Coupon applied successfully: ${couponData.discountPercentage}% OFF!`);
     } catch (error) {
       console.error("Error validating coupon:", error);
-      alert("Error validating coupon. Please try again.");
+      toast.error("Error validating coupon. Please try again.");
+      handleFirestoreError(error, OperationType.GET, 'coupons');
     } finally {
       setValidatingCoupon(false);
     }
@@ -115,9 +118,9 @@ export default function Tickets() {
         });
       }
 
-      // 4. Optionally tell backend to send email (ignore if it fails on static hosts)
+      // 4. Optionally tell Backend/Netlify Function to send email
       try {
-        fetch('/api/confirm-payment', {
+        fetch('/api/send-ticket-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -142,14 +145,16 @@ export default function Tickets() {
       setSelectedTicket(null);
       setAppliedCoupon(null);
       setCouponCodeInput('');
+      toast.success("Payment recorded successfully!");
     } catch (error) {
       console.error("Payment confirmation failed", error);
-      alert("Payment was successful but we couldn't properly record it. Please contact support with reference: " + reference.reference);
+      toast.error("Payment was successful but we couldn't properly record it. Please contact support with reference: " + reference.reference);
+      handleFirestoreError(error, OperationType.WRITE, 'purchases');
     }
   };
 
   const handleClose = () => {
-    console.log('Payment closed');
+    toast.error('Payment cancelled');
   };
 
   const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || "pk_test_your_paystack_public_key_here";

@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { Calendar, MapPin, Users, Mic, Lightbulb, Globe, ArrowRight, Twitter, Facebook, Linkedin, Link as LinkIcon, ChevronDown, ChevronUp } from 'lucide-react';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import toast from 'react-hot-toast';
 import SEO from '../components/SEO';
 
 const faqs = [
@@ -44,6 +45,7 @@ const FAQItem: React.FC<{ question: string, answer: string }> = ({ question, ans
 
 export default function Home() {
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+  const [eventStatus, setEventStatus] = useState<'upcoming' | 'today' | 'past'>('upcoming');
   const [speakers, setSpeakers] = useState<Speaker[]>([]);
   const [eventSettings, setEventSettings] = useState({
     date: '16th May, 2026',
@@ -68,25 +70,39 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const targetDate = new Date(eventSettings.countdownTarget || '2026-05-16T09:00:00').getTime();
+    const targetDateObj = new Date(eventSettings.countdownTarget || '2026-05-16T09:00:00');
+    const targetDate = targetDateObj.getTime();
 
-    const interval = setInterval(() => {
-      const now = new Date().getTime();
+    const checkStatusAndUpdateTime = () => {
+      const nowObj = new Date();
+      const now = nowObj.getTime();
       const distance = targetDate - now;
 
-      if (distance < 0 || isNaN(distance)) {
-        clearInterval(interval);
-        setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0 });
-        return;
-      }
+      const isSameDay = nowObj.getFullYear() === targetDateObj.getFullYear() && 
+                        nowObj.getMonth() === targetDateObj.getMonth() && 
+                        nowObj.getDate() === targetDateObj.getDate();
 
-      setTimeLeft({
-        days: Math.floor(distance / (1000 * 60 * 60 * 24)),
-        hours: Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
-        minutes: Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60)),
-        seconds: Math.floor((distance % (1000 * 60)) / 1000)
-      });
-    }, 1000);
+      if (isSameDay) {
+        setEventStatus('today');
+        setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+      } else if (now > targetDate) {
+        setEventStatus('past');
+        setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+      } else {
+        setEventStatus('upcoming');
+        if (!isNaN(distance)) {
+          setTimeLeft({
+            days: Math.floor(distance / (1000 * 60 * 60 * 24)),
+            hours: Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+            minutes: Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60)),
+            seconds: Math.floor((distance % (1000 * 60)) / 1000)
+          });
+        }
+      }
+    };
+
+    checkStatusAndUpdateTime();
+    const interval = setInterval(checkStatusAndUpdateTime, 1000);
 
     return () => clearInterval(interval);
   }, [eventSettings.countdownTarget]);
@@ -131,19 +147,31 @@ export default function Home() {
               Join the brightest minds in Lokoja for a day of inspiration, innovation, and connection.
             </p>
 
-            {/* Countdown Timer */}
-            <div className="flex flex-wrap gap-4 mb-10">
-              {[
-                { label: 'Days', value: timeLeft.days },
-                { label: 'Hours', value: timeLeft.hours },
-                { label: 'Minutes', value: timeLeft.minutes },
-                { label: 'Seconds', value: timeLeft.seconds }
-              ].map((item) => (
-                <div key={item.label} className="bg-white/10 backdrop-blur-md rounded-2xl p-4 text-center min-w-[90px] border border-white/20">
-                  <div className="text-3xl md:text-4xl font-bold text-white mb-1">{item.value.toString().padStart(2, '0')}</div>
-                  <div className="text-xs text-gray-300 uppercase tracking-widest font-medium">{item.label}</div>
+            {/* Countdown Timer / Event Status */}
+            <div className="mb-10">
+              {eventStatus === 'today' ? (
+                <div className="bg-white/20 backdrop-blur-md rounded-2xl p-6 border border-white/30 inline-block">
+                  <h3 className="text-3xl md:text-4xl font-bold text-white tracking-widest uppercase mb-2 animate-pulse text-center">Happening Today</h3>
                 </div>
-              ))}
+              ) : eventStatus === 'past' ? (
+                <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20 inline-block">
+                  <h3 className="text-2xl md:text-3xl font-bold text-white tracking-widest uppercase text-center">Thank you for joining us</h3>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-4">
+                  {[
+                    { label: 'Days', value: timeLeft.days },
+                    { label: 'Hours', value: timeLeft.hours },
+                    { label: 'Minutes', value: timeLeft.minutes },
+                    { label: 'Seconds', value: timeLeft.seconds }
+                  ].map((item) => (
+                    <div key={item.label} className="bg-white/10 backdrop-blur-md rounded-2xl p-4 text-center min-w-[90px] border border-white/20">
+                      <div className="text-3xl md:text-4xl font-bold text-white mb-1">{item.value.toString().padStart(2, '0')}</div>
+                      <div className="text-xs text-gray-300 uppercase tracking-widest font-medium">{item.label}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <Link 
@@ -165,7 +193,7 @@ export default function Home() {
               <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.origin)}`} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-red-600 transition-colors text-white">
                 <Linkedin size={18} />
               </a>
-              <button onClick={() => { navigator.clipboard.writeText(window.location.origin); alert('Link copied to clipboard!'); }} className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-red-600 transition-colors text-white">
+              <button onClick={() => { navigator.clipboard.writeText(window.location.origin); toast.success('Link copied to clipboard!'); }} className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-red-600 transition-colors text-white">
                 <LinkIcon size={18} />
               </button>
             </div>

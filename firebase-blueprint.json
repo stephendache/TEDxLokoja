@@ -9,6 +9,10 @@
         "email": { "type": "string", "format": "email" },
         "displayName": { "type": "string" },
         "role": { "type": "string", "enum": ["admin", "user"] },
+        "permissions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email", "role", "createdAt"]
@@ -24,6 +28,7 @@
         "quantity": { "type": "number" },
         "available": { "type": "number" },
         "visibility": { "type": "string", "enum": ["public", "hidden"] },
+        "order": { "type": "number" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "price", "quantity", "available", "createdAt"]
@@ -116,9 +121,27 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "merchId", "amount", "status", "reference", "createdAt"]
+    },
+    "TeamMember": {
+      "title": "TeamMember",
+      "description": "A member of the team.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "order": { "type": "number" },
+        "visibility": { "type": "string", "enum": ["public", "hidden"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "role", "createdAt"]
     }
   },
   "firestore": {
+    "/teamMembers/{memberId}": {
+      "schema": { "$ref": "#/entities/TeamMember" },
+      "description": "Stores team members."
+    },
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/User" },
       "description": "Stores user profiles."

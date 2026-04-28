@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, increment } from 'firebase/firestore';
 import { PaystackButton } from 'react-paystack';
+import toast from 'react-hot-toast';
 import SEO from '../components/SEO';
 
 interface MerchItem {
@@ -18,7 +19,7 @@ interface MerchItem {
 }
 
 export default function Store() {
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
   const [products, setProducts] = useState<MerchItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
@@ -41,13 +42,13 @@ export default function Store() {
   }, []);
 
   const handleSuccess = async (reference: any, product: MerchItem) => {
-    if (!profile) return;
+    if (!profile || !user) return;
 
     setPurchasingId(product.id);
     try {
       // Create order record
       await addDoc(collection(db, 'merchOrders'), {
-        userId: profile.uid,
+        userId: user.uid,
         merchId: product.id,
         amount: product.price,
         status: 'success',
@@ -60,10 +61,26 @@ export default function Store() {
         available: increment(-1)
       });
 
-      alert(`Successfully purchased ${product.name}!`);
+      // Send confirmation email
+      try {
+        fetch('/api/send-merch-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: user.email || profile.email,
+            name: profile.displayName || user.email,
+            itemName: product.name,
+            reference: reference.reference
+          })
+        });
+      } catch (err) {
+        console.error('Failed to send merch email:', err);
+      }
+
+      toast.success(`Successfully purchased ${product.name}!`);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'merchOrders');
-      alert("Purchase failed. Please try again.");
+      toast.error("Purchase failed. Please try again.");
     } finally {
       setPurchasingId(null);
     }
@@ -169,7 +186,7 @@ export default function Store() {
                         publicKey={paystackKey}
                         text={purchasingId === product.id ? 'Processing...' : 'Buy Now'}
                         onSuccess={(reference: any) => handleSuccess(reference, product)}
-                        onClose={() => console.log('Payment closed')}
+                        onClose={() => toast.error('Payment cancelled')}
                         disabled={product.available <= 0 || purchasingId === product.id}
                         className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-medium transition-colors ${
                           product.available <= 0 
@@ -181,7 +198,7 @@ export default function Store() {
                       />
                     ) : (
                       <button 
-                        onClick={() => alert("Please log in to purchase merchandise.")}
+                        onClick={() => toast.error("Please log in to purchase merchandise.")}
                         disabled={product.available <= 0}
                         className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-medium transition-colors ${
                           product.available <= 0 
