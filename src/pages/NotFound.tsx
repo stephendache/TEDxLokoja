@@ -33,7 +33,7 @@ export default function NotFound() {
             onClick={() => window.history.back()}
             className="flex items-center justify-center gap-2 w-full sm:w-auto px-8 py-4 bg-gray-100 text-gray-900 rounded-full font-semibold hover:bg-gray-200 transition-colors"
           >
-            <ArrowLeft size={20} />
+            <ArrowLeft size={18} />
             Go Back
           </button>
         </div>
