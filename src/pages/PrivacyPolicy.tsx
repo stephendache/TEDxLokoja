@@ -44,7 +44,7 @@ export default function PrivacyPolicy() {
 
           <h2 className="text-2xl font-bold text-gray-900 mt-8 mb-4">5. Contact Us</h2>
           <p className="mb-4">
-            If you have any questions about this privacy policy or our privacy practices, please contact us at info@tedxlokoja.com.
+            If you have any questions about this privacy policy or our privacy practices, please contact us at tedxlokoja.cmtty@gmail.com.
           </p>
         </div>
       </motion.div>
