@@ -74,6 +74,7 @@ async function startServer() {
 
       // 2. Send Email
       const qrCodeDataUrl = await QRCode.toDataURL(reference);
+      const base64Data = qrCodeDataUrl.split(',')[1];
 
       if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
         console.warn("GMAIL_USER or GMAIL_PASS is not set. Skipping email sending.");
@@ -94,10 +95,16 @@ async function startServer() {
               <p style="margin: 0;"><strong>Reference:</strong> ${reference}</p>
             </div>
             <p>Please present the QR code below at the event entrance:</p>
-            <img src="${qrCodeDataUrl}" alt="Ticket QR Code" style="width: 200px; height: 200px;" />
+            <img src="cid:qrcode" alt="Ticket QR Code" style="width: 200px; height: 200px;" />
             <p>See you there!</p>
           </div>
         `,
+        attachments: [{
+          filename: 'qrcode.png',
+          content: base64Data,
+          encoding: 'base64',
+          cid: 'qrcode'
+        }]
       };
 
       if (process.env.ADMIN_EMAIL) {
@@ -126,6 +133,7 @@ async function startServer() {
       }
 
       const qrCodeDataUrl = await QRCode.toDataURL(reference);
+      const base64Data = qrCodeDataUrl.split(',')[1];
 
       if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
         console.warn("GMAIL_USER or GMAIL_PASS is not set. Skipping email sending.");
@@ -153,7 +161,7 @@ async function startServer() {
               <p style="text-align: center; font-size: 16px; margin-bottom: 20px;">Please present the QR code below at the merch collection stand:</p>
               
               <div style="text-align: center; margin: 30px 0;">
-                <img src="${qrCodeDataUrl}" alt="Merch QR Code" style="width: 200px; height: 200px; border-radius: 8px; border: 1px solid #eeeeee;" />
+                <img src="cid:qrcode" alt="Merch QR Code" style="width: 200px; height: 200px; border-radius: 8px; border: 1px solid #eeeeee;" />
               </div>
               
               <p style="font-size: 16px; font-weight: bold; text-align: center;">Start Where You Are. See you soon!</p>
@@ -163,6 +171,12 @@ async function startServer() {
             </div>
           </div>
         `,
+        attachments: [{
+          filename: 'qrcode.png',
+          content: base64Data,
+          encoding: 'base64',
+          cid: 'qrcode'
+        }]
       };
 
       if (process.env.ADMIN_EMAIL) {
@@ -186,6 +200,7 @@ async function startServer() {
       }
 
       const qrCodeDataUrl = await QRCode.toDataURL(reference);
+      const base64Data = qrCodeDataUrl.split(',')[1];
 
       if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
         console.warn("GMAIL_USER or GMAIL_PASS is not set. Skipping email sending.");
@@ -213,7 +228,7 @@ async function startServer() {
               <p style="text-align: center; font-size: 16px; margin-bottom: 20px;">Please present the QR code below at the event entrance:</p>
               
               <div style="text-align: center; margin: 30px 0;">
-                <img src="${qrCodeDataUrl}" alt="Ticket QR Code" style="width: 200px; height: 200px; border-radius: 8px; border: 1px solid #eeeeee;" />
+                <img src="cid:qrcode" alt="Ticket QR Code" style="width: 200px; height: 200px; border-radius: 8px; border: 1px solid #eeeeee;" />
               </div>
               
               <p style="font-size: 16px; font-weight: bold; text-align: center;">Start Where You Are. We can't wait to see you there!</p>
@@ -223,6 +238,12 @@ async function startServer() {
             </div>
           </div>
         `,
+        attachments: [{
+          filename: 'qrcode.png',
+          content: base64Data,
+          encoding: 'base64',
+          cid: 'qrcode'
+        }]
       };
 
       if (process.env.ADMIN_EMAIL) {
