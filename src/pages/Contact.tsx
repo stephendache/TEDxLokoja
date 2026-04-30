@@ -111,8 +111,8 @@ export default function Contact() {
             <div>
               <h3 className="text-xl font-bold mb-2">Email Us</h3>
               <p className="text-gray-600">
-                <a href="mailto:tedxlokoja.cmtty@gmail.com" className="hover:text-red-600 transition-colors">tedxlokoja.cmtty@gmail.com</a><br />
-                {/* <a href="mailto:sponsorship@tedxlokoja.com" className="hover:text-red-600 transition-colors">sponsorship@tedxlokoja.com</a> */}
+                <a href="mailto:info@tedxlokoja.com" className="hover:text-red-600 transition-colors">info@tedxlokoja.com</a><br />
+                <a href="mailto:sponsorship@tedxlokoja.com" className="hover:text-red-600 transition-colors">sponsorship@tedxlokoja.com</a>
               </p>
             </div>
           </div>

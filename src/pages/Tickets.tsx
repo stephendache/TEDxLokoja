@@ -252,10 +252,19 @@ export default function Tickets() {
                     </div>
                   </div>
                   
-                  <PaystackButton 
-                    {...componentProps} 
-                    className="w-full bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl font-bold transition-colors"
-                  />
+                  {currentPrice > 0 ? (
+                    <PaystackButton 
+                      {...componentProps} 
+                      className="w-full bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl font-bold transition-colors"
+                    />
+                  ) : (
+                    <button 
+                      onClick={() => handleSuccess({ reference: 'TKT-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substring(2, 6).toUpperCase() })}
+                      className="w-full bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl font-bold transition-colors text-center block"
+                    >
+                      Claim Free Ticket
+                    </button>
+                  )}
                   <button 
                     onClick={() => {
                       setSelectedTicket(null);
