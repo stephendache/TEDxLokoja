@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, addDoc, onSnapshot, serverTimestamp, deleteDoc, doc, updateDoc, setDoc, getDoc, increment } from 'firebase/firestore';
 import { motion } from 'motion/react';
-import { Plus, Trash2, Shield, ShieldAlert, Search, Save, ArrowUp, ArrowDown, Eye, EyeOff, Edit2, Settings, Download, CheckCircle, Circle, Filter } from 'lucide-react';
+import { Plus, Trash2, Shield, ShieldAlert, Search, Save, ArrowUp, ArrowDown, Eye, EyeOff, Edit2, Settings, Download, CheckCircle, Circle, Filter, Mail } from 'lucide-react';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
@@ -146,6 +146,7 @@ export default function AdminDashboard() {
   const [merchOrders, setMerchOrders] = useState<MerchOrder[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [ticketFilter, setTicketFilter] = useState<string>('all');
+  const [resendingTicketId, setResendingTicketId] = useState<string | null>(null);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [eventSettings, setEventSettings] = useState<EventSettings>({
@@ -167,6 +168,7 @@ export default function AdminDashboard() {
   const [isCreatingTeamMember, setIsCreatingTeamMember] = useState(false);
   const [isCreatingMerch, setIsCreatingMerch] = useState(false);
   const [isCreatingCoupon, setIsCreatingCoupon] = useState(false);
+  const [isCreatingAttendee, setIsCreatingAttendee] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -197,6 +199,13 @@ export default function AdminDashboard() {
     code: '',
     discountPercentage: '',
     maxUses: ''
+  });
+  const [attendeeFormData, setAttendeeFormData] = useState({
+    userName: '',
+    userEmail: '',
+    ticketTypeId: '',
+    amount: '',
+    reference: ''
   });
 
   useEffect(() => {
@@ -581,6 +590,42 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleAddAttendeeManually = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!attendeeFormData.userName || !attendeeFormData.userEmail || !attendeeFormData.ticketTypeId) {
+      toast.error("Please fill all required fields");
+      return;
+    }
+
+    const selectedTicket = tickets.find(t => t.id === attendeeFormData.ticketTypeId);
+    if (!selectedTicket) return;
+
+    const reference = attendeeFormData.reference.trim() || 'MAN-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substring(2, 6).toUpperCase();
+
+    try {
+      await addDoc(collection(db, 'purchases'), {
+        userId: 'manual_entry',
+        userName: attendeeFormData.userName,
+        userEmail: attendeeFormData.userEmail,
+        ticketTypeId: selectedTicket.id,
+        ticketName: selectedTicket.name,
+        amount: attendeeFormData.amount ? Number(attendeeFormData.amount) : 0,
+        status: 'success',
+        reference: reference,
+        createdAt: serverTimestamp(),
+        checkedIn: false
+      });
+
+      toast.success("Attendee added successfully!");
+      setIsCreatingAttendee(false);
+      setAttendeeFormData({ userName: '', userEmail: '', ticketTypeId: '', amount: '', reference: '' });
+      
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'purchases');
+      toast.error("Failed to add attendee");
+    }
+  };
+
   const handleToggleCheckIn = async (purchaseId: string, currentStatus: boolean | undefined) => {
     try {
       await updateDoc(doc(db, 'purchases', purchaseId), { checkedIn: !currentStatus });
@@ -588,6 +633,38 @@ export default function AdminDashboard() {
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'purchases');
       toast.error("Failed to update check-in status");
+    }
+  };
+
+  const handleResendTicket = async (purchase: Purchase) => {
+    if (!purchase.userEmail) {
+      toast.error("No email associated with this purchase.");
+      return;
+    }
+    setResendingTicketId(purchase.id);
+    try {
+      const res = await fetch('/api/send-ticket-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: purchase.userEmail,
+          name: purchase.userName || 'Attendee',
+          ticketName: purchase.ticketName || purchase.ticketTypeId,
+          reference: purchase.reference
+        })
+      });
+      
+      if (res.ok) {
+        toast.success("Ticket resent successfully!");
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Failed to resend ticket.");
+      }
+    } catch (error) {
+      console.error("Error resending ticket:", error);
+      toast.error("An error occurred while resending the ticket.");
+    } finally {
+      setResendingTicketId(null);
     }
   };
 
@@ -878,6 +955,15 @@ export default function AdminDashboard() {
           >
             <Plus size={20} />
             Create Coupon
+          </button>
+        )}
+        {activeTab === 'attendees' && (
+          <button 
+            onClick={() => setIsCreatingAttendee(!isCreatingAttendee)}
+            className="bg-black text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-800"
+          >
+            <Plus size={20} />
+            Add Attendee Manually
           </button>
         )}
         {activeTab === 'teamMembers' && (
@@ -1585,6 +1671,102 @@ export default function AdminDashboard() {
         </div>
       ) : activeTab === 'attendees' ? (
         <div className="space-y-4">
+          {isCreatingAttendee && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="bg-gray-50 p-6 rounded-2xl mb-8 border border-gray-200"
+            >
+              <h3 className="text-xl font-bold mb-4">Add Attendee Manually</h3>
+              <form onSubmit={handleAddAttendeeManually} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Name</label>
+                  <input 
+                    type="text" 
+                    value={attendeeFormData.userName} 
+                    onChange={e => setAttendeeFormData({...attendeeFormData, userName: e.target.value})}
+                    className="w-full p-2 border rounded-lg" 
+                    required placeholder="e.g., John Doe" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Email</label>
+                  <input 
+                    type="email" 
+                    value={attendeeFormData.userEmail} 
+                    onChange={e => {
+                      const email = e.target.value;
+                      const existingUser = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+                      setAttendeeFormData({
+                        ...attendeeFormData, 
+                        userEmail: email,
+                        ...(existingUser && existingUser.displayName ? { userName: existingUser.displayName } : {})
+                      });
+                    }}
+                    list="users-emails"
+                    className="w-full p-2 border rounded-lg" 
+                    required placeholder="e.g., john@example.com" 
+                  />
+                  <datalist id="users-emails">
+                    {users.map(u => (
+                      <option key={u.uid} value={u.email}>{u.displayName}</option>
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Ticket Type</label>
+                  <select 
+                    value={attendeeFormData.ticketTypeId} 
+                    onChange={e => setAttendeeFormData({...attendeeFormData, ticketTypeId: e.target.value})}
+                    className="w-full p-2 border rounded-lg" 
+                    required 
+                  >
+                    <option value="">Select a ticket</option>
+                    {tickets.map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Amount Paid (Optional)</label>
+                  <input 
+                    type="number" 
+                    min="0"
+                    value={attendeeFormData.amount} 
+                    onChange={e => setAttendeeFormData({...attendeeFormData, amount: e.target.value})}
+                    className="w-full p-2 border rounded-lg" 
+                    placeholder="e.g., 0 for free" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Payment Reference (Optional)</label>
+                  <input 
+                    type="text" 
+                    value={attendeeFormData.reference} 
+                    onChange={e => setAttendeeFormData({...attendeeFormData, reference: e.target.value})}
+                    className="w-full p-2 border rounded-lg uppercase" 
+                    placeholder="e.g., PAY-123456" 
+                  />
+                </div>
+                <div className="md:col-span-2 flex justify-end gap-2 mt-2">
+                  <button 
+                    type="button" 
+                    onClick={() => setIsCreatingAttendee(false)}
+                    className="px-4 py-2 border rounded-lg hover:bg-gray-100"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit"
+                    className="bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800"
+                  >
+                    Add Attendee
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          )}
+
           <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Filter size={18} className="text-gray-500" />
@@ -1628,6 +1810,7 @@ export default function AdminDashboard() {
                   <th className="p-4 font-semibold">Amount Paid</th>
                   <th className="p-4 font-semibold">Reference</th>
                   <th className="p-4 font-semibold text-center">Check-in</th>
+                  <th className="p-4 font-semibold text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1651,11 +1834,26 @@ export default function AdminDashboard() {
                         {purchase.checkedIn ? 'Checked in' : 'Check in'}
                       </button>
                     </td>
+                    <td className="p-4 text-right">
+                      <button
+                        onClick={() => handleResendTicket(purchase)}
+                        disabled={resendingTicketId === purchase.id || !purchase.userEmail}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Resend Ticket Email"
+                      >
+                        {resendingTicketId === purchase.id ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-600"></div>
+                        ) : (
+                          <Mail size={16} />
+                        )}
+                        <span className="hidden sm:inline">Resend</span>
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {filteredPurchases.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="p-8 text-center text-gray-500">No attendees found.</td>
+                    <td colSpan={7} className="p-8 text-center text-gray-500">No attendees found.</td>
                   </tr>
                 )}
               </tbody>
