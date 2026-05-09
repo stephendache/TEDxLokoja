@@ -1,14 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { Mic, CheckCircle2 } from 'lucide-react';
+import { collection, addDoc, serverTimestamp, doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { Mic, CheckCircle2, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SEO from '../components/SEO';
 
 export default function CallForSpeakers() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [isCallForSpeakersOpen, setIsCallForSpeakersOpen] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -18,6 +20,24 @@ export default function CallForSpeakers() {
     pastExperience: '',
     links: ''
   });
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const settingsDoc = await getDoc(doc(db, 'settings', 'eventDetails'));
+        if (settingsDoc.exists()) {
+          const data = settingsDoc.data();
+          setIsCallForSpeakersOpen(data.isCallForSpeakersOpen !== false);
+        }
+      } catch (error) {
+        console.error('Error fetching settings:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchSettings();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,7 +111,21 @@ export default function CallForSpeakers() {
         </div>
 
         <div className="bg-white rounded-3xl shadow-xl p-8 md:p-12">
-          <form onSubmit={handleSubmit} className="space-y-6">
+          {loading ? (
+            <div className="text-center py-12">Loading...</div>
+          ) : !isCallForSpeakersOpen ? (
+            <div className="text-center py-12">
+              <div className="w-16 h-16 bg-gray-100 text-gray-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                <AlertCircle size={32} />
+              </div>
+              <h2 className="text-2xl font-bold mb-4">Call for Speakers Closed</h2>
+              <p className="text-gray-600">
+                Thank you for your interest! The call for speakers for TEDx Lokoja 2026 has officially ended. 
+                Please check back later for future opportunities.
+              </p>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Full Name *</label>
@@ -183,6 +217,7 @@ export default function CallForSpeakers() {
               {isSubmitting ? 'Submitting...' : 'Submit Application'}
             </button>
           </form>
+          )}
         </div>
       </div>
     </div>

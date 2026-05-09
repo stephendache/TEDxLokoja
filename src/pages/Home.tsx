@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'motion/react';
-import { Calendar, MapPin, Users, Mic, Lightbulb, Globe, ArrowRight, Twitter, Facebook, Linkedin, Link as LinkIcon, ChevronDown, ChevronUp } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Calendar, MapPin, Users, Mic, Lightbulb, Globe, ArrowRight, Twitter, Facebook, Linkedin, Link as LinkIcon, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
@@ -18,8 +18,20 @@ interface Speaker {
   id: string;
   name: string;
   role: string;
+  talkTitle?: string;
   bio?: string;
   imageUrl?: string;
+  order?: number;
+}
+
+interface Partner {
+  id: string;
+  name: string;
+  logoUrl: string;
+  tier: string;
+  websiteUrl?: string;
+  order?: number;
+  visibility?: 'public' | 'hidden';
 }
 
 const FAQItem: React.FC<{ question: string, answer: string }> = ({ question, answer }) => {
@@ -47,6 +59,8 @@ export default function Home() {
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   const [eventStatus, setEventStatus] = useState<'upcoming' | 'today' | 'past'>('upcoming');
   const [speakers, setSpeakers] = useState<Speaker[]>([]);
+  const [selectedSpeaker, setSelectedSpeaker] = useState<Speaker | null>(null);
+  const [partners, setPartners] = useState<Partner[]>([]);
   const [eventSettings, setEventSettings] = useState({
     date: '16th May, 2026',
     time: '9:00 AM - 5:00 PM',
@@ -118,8 +132,19 @@ export default function Home() {
       handleFirestoreError(error, OperationType.LIST, 'speakers');
     });
 
+    const unsubscribePartners = onSnapshot(collection(db, 'partners'), (snapshot) => {
+      const partnerData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Partner[];
+      setPartners(partnerData);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'partners');
+    });
+
     return () => {
       unsubscribeSpeakers();
+      unsubscribePartners();
     };
   }, []);
 
@@ -365,7 +390,7 @@ export default function Home() {
               transition={{ duration: 0.5, staggerChildren: 0.1 }}
               className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
             >
-              {speakers.map((speaker, index) => (
+              {[...speakers].sort((a, b) => (a.order ?? 999) - (b.order ?? 999)).map((speaker, index) => (
                 <motion.div 
                   key={speaker.id}
                   initial={{ opacity: 0, y: 20 }}
@@ -374,6 +399,7 @@ export default function Home() {
                   transition={{ delay: index * 0.1 }}
                   whileHover={{ y: -10 }}
                   className="group cursor-pointer"
+                  onClick={() => setSelectedSpeaker(speaker)}
                 >
                   <div className="aspect-[3/4] rounded-2xl overflow-hidden mb-4 relative bg-gray-200">
                     {speaker.imageUrl ? (
@@ -396,6 +422,9 @@ export default function Home() {
                   </div>
                   <h3 className="text-xl font-bold">{speaker.name}</h3>
                   <p className="text-red-600 font-medium text-sm">{speaker.role}</p>
+                  {speaker.talkTitle && (
+                    <p className="text-gray-600 font-medium text-xs mt-1 italic">"{speaker.talkTitle}"</p>
+                  )}
                 </motion.div>
               ))}
             </motion.div>
@@ -412,6 +441,44 @@ export default function Home() {
           )}
         </div>
       </section>
+
+      {/* Partners Section */}
+      {partners.filter(p => p.visibility !== 'hidden').length > 0 && (
+        <section className="py-24 bg-gray-50 border-t border-gray-100">
+          <div className="max-w-7xl mx-auto px-4">
+            <div className="text-center mb-16">
+              <h2 className="text-4xl md:text-5xl font-bold tracking-tighter mb-4">Our Partners</h2>
+              <p className="text-gray-600 text-lg">Proudly supported by organizations that believe in ideas worth spreading.</p>
+            </div>
+            
+            <div className="flex flex-wrap justify-center items-center gap-12 md:gap-20">
+              {[...partners]
+                .filter(p => p.visibility !== 'hidden')
+                .sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
+                .map((partner) => (
+                  <div key={partner.id} className="flex flex-col items-center justify-center p-4">
+                    {partner.websiteUrl ? (
+                      <a href={partner.websiteUrl} target="_blank" rel="noopener noreferrer" className="block group">
+                        <img 
+                          src={partner.logoUrl} 
+                          alt={partner.name} 
+                          className="h-16 md:h-24 w-auto object-contain grayscale opacity-60 transition-all duration-300 group-hover:grayscale-0 group-hover:opacity-100 mix-blend-multiply" 
+                        />
+                      </a>
+                    ) : (
+                      <img 
+                        src={partner.logoUrl} 
+                        alt={partner.name} 
+                        className="h-16 md:h-24 w-auto object-contain grayscale opacity-60 hover:grayscale-0 hover:opacity-100 transition-all duration-300 mix-blend-multiply" 
+                      />
+                    )}
+                    <span className="text-sm font-medium text-gray-500 mt-4 uppercase tracking-widest text-center">{partner.tier}</span>
+                  </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* FAQ Section */}
       <section className="py-24 bg-white">
@@ -443,6 +510,67 @@ export default function Home() {
           </Link>
         </div>
       </section>
+      {/* Speaker Modal */}
+      <AnimatePresence>
+        {selectedSpeaker && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setSelectedSpeaker(null)}
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden"
+            >
+              <button 
+                onClick={() => setSelectedSpeaker(null)}
+                className="absolute top-4 right-4 z-10 p-2 bg-white/50 backdrop-blur-md rounded-full text-gray-900 hover:bg-white transition-colors"
+              >
+                <X size={20} />
+              </button>
+              <div className="flex flex-col md:flex-row">
+                <div className="w-full md:w-2/5 aspect-square md:aspect-auto relative bg-gray-100">
+                  {selectedSpeaker.imageUrl ? (
+                    <img 
+                      src={selectedSpeaker.imageUrl} 
+                      alt={selectedSpeaker.name} 
+                      className="w-full h-full object-cover" 
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-400">
+                      <Mic size={64} />
+                    </div>
+                  )}
+                </div>
+                <div className="w-full md:w-3/5 p-8 max-h-[80vh] overflow-y-auto">
+                  <h3 className="text-3xl font-bold mb-2">{selectedSpeaker.name}</h3>
+                  <p className="text-red-600 font-bold mb-4">{selectedSpeaker.role}</p>
+                  {selectedSpeaker.talkTitle && (
+                    <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                      <p className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-1">Talk Title</p>
+                      <p className="text-lg font-medium text-gray-900 leading-tight">"{selectedSpeaker.talkTitle}"</p>
+                    </div>
+                  )}
+                  {selectedSpeaker.bio && (
+                    <div>
+                      <h4 className="text-sm font-bold uppercase tracking-wider text-gray-400 mb-3">About</h4>
+                      <div className="whitespace-pre-wrap text-gray-600 leading-relaxed">
+                        {selectedSpeaker.bio}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

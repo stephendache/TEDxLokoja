@@ -29,6 +29,7 @@ interface EventSettings {
   venue: string;
   venueAddress: string;
   countdownTarget: string;
+  isCallForSpeakersOpen?: boolean;
 }
 
 interface TicketType {
@@ -55,8 +56,10 @@ interface Speaker {
   id: string;
   name: string;
   role: string;
+  talkTitle?: string;
   bio?: string;
   imageUrl?: string;
+  order?: number;
 }
 
 interface SpeakerApplication {
@@ -135,9 +138,20 @@ interface TeamMember {
   createdAt: any;
 }
 
+interface Partner {
+  id: string;
+  name: string;
+  logoUrl: string;
+  tier: string;
+  websiteUrl: string;
+  order?: number;
+  visibility?: 'public' | 'hidden';
+}
+
 export default function AdminDashboard() {
   const { profile, loading } = useAuth();
   const [tickets, setTickets] = useState<TicketType[]>([]);
+  const [partners, setPartners] = useState<Partner[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [speakers, setSpeakers] = useState<Speaker[]>([]);
   const [speakerApps, setSpeakerApps] = useState<SpeakerApplication[]>([]);
@@ -146,6 +160,7 @@ export default function AdminDashboard() {
   const [merchOrders, setMerchOrders] = useState<MerchOrder[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [ticketFilter, setTicketFilter] = useState<string>('all');
+  const [userFilter, setUserFilter] = useState<'all' | 'with_ticket' | 'without_ticket'>('all');
   const [resendingTicketId, setResendingTicketId] = useState<string | null>(null);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -154,18 +169,22 @@ export default function AdminDashboard() {
     time: '9:00 AM - 5:00 PM',
     venue: 'College of Health Sciences (COHS) Auditorium',
     venueAddress: 'Federal University Lokoja, Adankolo Campus',
-    countdownTarget: '2026-05-16T09:00:00'
+    countdownTarget: '2026-05-16T09:00:00',
+    isCallForSpeakersOpen: true
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
-  const [activeTab, setActiveTab] = useState<'tickets' | 'users' | 'speakers' | 'speakerApps' | 'sponsorApps' | 'merch' | 'merchOrders' | 'settings' | 'attendees' | 'coupons' | 'teamMembers'>('tickets');
+  const [activeTab, setActiveTab] = useState<'tickets' | 'users' | 'speakers' | 'speakerApps' | 'sponsorApps' | 'merch' | 'merchOrders' | 'settings' | 'attendees' | 'coupons' | 'teamMembers' | 'partners'>('tickets');
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [editingTicketId, setEditingTicketId] = useState<string | null>(null);
   const [editingTeamMemberId, setEditingTeamMemberId] = useState<string | null>(null);
+  const [editingSpeakerId, setEditingSpeakerId] = useState<string | null>(null);
+  const [editingPartnerId, setEditingPartnerId] = useState<string | null>(null);
   const [permissionsModalUser, setPermissionsModalUser] = useState<UserProfile | null>(null);
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
   const [isCreatingSpeaker, setIsCreatingSpeaker] = useState(false);
   const [isCreatingTeamMember, setIsCreatingTeamMember] = useState(false);
+  const [isCreatingPartner, setIsCreatingPartner] = useState(false);
   const [isCreatingMerch, setIsCreatingMerch] = useState(false);
   const [isCreatingCoupon, setIsCreatingCoupon] = useState(false);
   const [isCreatingAttendee, setIsCreatingAttendee] = useState(false);
@@ -179,6 +198,7 @@ export default function AdminDashboard() {
   const [speakerFormData, setSpeakerFormData] = useState({
     name: '',
     role: '',
+    talkTitle: '',
     bio: '',
     imageUrl: ''
   });
@@ -206,6 +226,13 @@ export default function AdminDashboard() {
     ticketTypeId: '',
     amount: '',
     reference: ''
+  });
+  const [partnerFormData, setPartnerFormData] = useState({
+    name: '',
+    logoUrl: '',
+    tier: '',
+    websiteUrl: '',
+    visibility: 'public' as 'public' | 'hidden'
   });
 
   useEffect(() => {
@@ -310,6 +337,16 @@ export default function AdminDashboard() {
       handleFirestoreError(error, OperationType.LIST, 'teamMembers');
     });
 
+    const unsubscribePartners = onSnapshot(collection(db, 'partners'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Partner[];
+      setPartners(data);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'partners');
+    });
+
     const fetchSettings = async () => {
       try {
         const settingsDoc = await getDoc(doc(db, 'settings', 'eventDetails'));
@@ -333,6 +370,7 @@ export default function AdminDashboard() {
       unsubscribePurchases();
       unsubscribeCoupons();
       unsubscribeTeamMembers();
+      unsubscribePartners();
     };
   }, [profile]);
 
@@ -342,8 +380,21 @@ export default function AdminDashboard() {
   const lowerQuery = searchQuery.toLowerCase();
   const filteredTickets = tickets.filter(t => t.name.toLowerCase().includes(lowerQuery) || t.description?.toLowerCase().includes(lowerQuery));
   const displayTickets = searchQuery ? filteredTickets : [...tickets].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
-  const filteredUsers = users.filter(u => u.displayName?.toLowerCase().includes(lowerQuery) || u.email.toLowerCase().includes(lowerQuery) || u.role.toLowerCase().includes(lowerQuery));
+  const filteredUsers = users.filter(u => {
+    const searchMatch = u.displayName?.toLowerCase().includes(lowerQuery) || u.email.toLowerCase().includes(lowerQuery) || u.role.toLowerCase().includes(lowerQuery);
+    
+    // Check ticket status for userFilter
+    const hasTicket = purchases.some(p => p.userId === u.uid && p.status === 'success');
+    let filterMatch = true;
+    if (userFilter === 'with_ticket') filterMatch = hasTicket;
+    if (userFilter === 'without_ticket') filterMatch = !hasTicket;
+    
+    return searchMatch && filterMatch;
+  });
   const filteredSpeakers = speakers.filter(s => s.name.toLowerCase().includes(lowerQuery) || s.role.toLowerCase().includes(lowerQuery));
+  const displaySpeakers = searchQuery 
+    ? filteredSpeakers 
+    : [...speakers].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
   const filteredSpeakerApps = speakerApps.filter(a => a.name.toLowerCase().includes(lowerQuery) || a.email.toLowerCase().includes(lowerQuery) || a.topic.toLowerCase().includes(lowerQuery));
   const filteredSponsorApps = sponsorApps.filter(a => a.companyName.toLowerCase().includes(lowerQuery) || a.contactName.toLowerCase().includes(lowerQuery) || a.email.toLowerCase().includes(lowerQuery));
   const filteredMerch = merchItems.filter(m => m.name.toLowerCase().includes(lowerQuery) || m.category.toLowerCase().includes(lowerQuery));
@@ -467,22 +518,84 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleCreateSpeaker = async (e: React.FormEvent) => {
+  const handleSaveSpeaker = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await addDoc(collection(db, 'speakers'), {
-        name: speakerFormData.name,
-        role: speakerFormData.role,
-        bio: speakerFormData.bio || null,
-        imageUrl: speakerFormData.imageUrl || null,
-        createdAt: serverTimestamp()
-      });
+      if (editingSpeakerId) {
+        await updateDoc(doc(db, 'speakers', editingSpeakerId), {
+          name: speakerFormData.name,
+          role: speakerFormData.role,
+          talkTitle: speakerFormData.talkTitle || null,
+          bio: speakerFormData.bio || null,
+          imageUrl: speakerFormData.imageUrl || null,
+        });
+      } else {
+        const highestOrder = Math.max(...speakers.map(s => s.order ?? 0), -1);
+        await addDoc(collection(db, 'speakers'), {
+          name: speakerFormData.name,
+          role: speakerFormData.role,
+          talkTitle: speakerFormData.talkTitle || null,
+          bio: speakerFormData.bio || null,
+          imageUrl: speakerFormData.imageUrl || null,
+          order: highestOrder + 1,
+          createdAt: serverTimestamp()
+        });
+      }
       setIsCreatingSpeaker(false);
-      setSpeakerFormData({ name: '', role: '', bio: '', imageUrl: '' });
-      toast.success("Speaker created successfully!");
+      setEditingSpeakerId(null);
+      setSpeakerFormData({ name: '', role: '', talkTitle: '', bio: '', imageUrl: '' });
+      toast.success(`Speaker ${editingSpeakerId ? 'updated' : 'created'} successfully!`);
     } catch (error) {
-      toast.error("An error occurred adding speaker");
-      handleFirestoreError(error, OperationType.CREATE, 'speakers');
+      toast.error(`An error occurred ${editingSpeakerId ? 'updating' : 'adding'} speaker`);
+      handleFirestoreError(error, editingSpeakerId ? OperationType.UPDATE : OperationType.CREATE, editingSpeakerId ? `speakers/${editingSpeakerId}` : 'speakers');
+    }
+  };
+
+  const handleEditSpeaker = (speaker: Speaker) => {
+    setSpeakerFormData({
+      name: speaker.name,
+      role: speaker.role,
+      talkTitle: speaker.talkTitle || '',
+      bio: speaker.bio || '',
+      imageUrl: speaker.imageUrl || ''
+    });
+    setEditingSpeakerId(speaker.id);
+    setIsCreatingSpeaker(true);
+  };
+
+  const handleReorderSpeakers = async (speakerId: string, direction: 'up' | 'down') => {
+    const sortedSpeakers = [...speakers].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+    const currentIndex = sortedSpeakers.findIndex(s => s.id === speakerId);
+    if (currentIndex === -1) return;
+    
+    if (direction === 'up' && currentIndex > 0) {
+      const temp = sortedSpeakers[currentIndex];
+      sortedSpeakers[currentIndex] = sortedSpeakers[currentIndex - 1];
+      sortedSpeakers[currentIndex - 1] = temp;
+      
+      try {
+        await Promise.all(sortedSpeakers.map((s, idx) => {
+          if (s.order !== idx) {
+             return updateDoc(doc(db, 'speakers', s.id), { order: idx });
+          }
+        }));
+      } catch (error) {
+         handleFirestoreError(error, OperationType.UPDATE, 'speakers');
+      }
+    } else if (direction === 'down' && currentIndex < sortedSpeakers.length - 1) {
+      const temp = sortedSpeakers[currentIndex];
+      sortedSpeakers[currentIndex] = sortedSpeakers[currentIndex + 1];
+      sortedSpeakers[currentIndex + 1] = temp;
+      
+      try {
+        await Promise.all(sortedSpeakers.map((s, idx) => {
+          if (s.order !== idx) {
+             return updateDoc(doc(db, 'speakers', s.id), { order: idx });
+          }
+        }));
+      } catch (error) {
+         handleFirestoreError(error, OperationType.UPDATE, 'speakers');
+      }
     }
   };
 
@@ -708,6 +821,41 @@ export default function AdminDashboard() {
     doc.save("attendees-export.pdf");
   };
 
+  const exportUsersExcel = () => {
+    const exportData = filteredUsers.map(u => ({
+      Name: u.displayName || 'N/A',
+      Email: u.email,
+      Role: u.role,
+      'Bought Ticket': purchases.some(p => p.userId === u.uid && p.status === 'success') ? 'Yes' : 'No',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Users");
+    XLSX.writeFile(wb, "users-export.xlsx");
+  };
+
+  const exportUsersPDF = () => {
+    const doc = new jsPDF();
+    doc.text("Users Report", 14, 15);
+    
+    const tableColumn = ["Name", "Email", "Role", "Bought Ticket"];
+    const tableRows = filteredUsers.map(u => [
+      u.displayName || 'N/A',
+      u.email,
+      u.role,
+      purchases.some(p => p.userId === u.uid && p.status === 'success') ? 'Yes' : 'No'
+    ]);
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 20
+    });
+
+    doc.save("users-export.pdf");
+  };
+
   const handleRoleChange = async (userId: string, currentRole: string) => {
     if (userId === profile?.uid) {
       toast.error("You cannot change your own role.");
@@ -817,6 +965,98 @@ export default function AdminDashboard() {
     } catch (error) {
       toast.error("Failed to create coupon");
       handleFirestoreError(error, OperationType.CREATE, 'coupons');
+    }
+  };
+
+  const handleCreatePartner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const highestOrder = Math.max(...partners.map(p => p.order || 0), -1);
+      await addDoc(collection(db, 'partners'), {
+        ...partnerFormData,
+        order: highestOrder + 1,
+        createdAt: serverTimestamp()
+      });
+      setIsCreatingPartner(false);
+      setPartnerFormData({ name: '', logoUrl: '', tier: '', websiteUrl: '', visibility: 'public' });
+      toast.success("Partner created successfully!");
+    } catch (error) {
+      toast.error("Failed to create partner");
+      handleFirestoreError(error, OperationType.CREATE, 'partners');
+    }
+  };
+
+  const handleUpdatePartner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPartnerId) return;
+    try {
+      await updateDoc(doc(db, 'partners', editingPartnerId), {
+        ...partnerFormData
+      });
+      setEditingPartnerId(null);
+      setPartnerFormData({ name: '', logoUrl: '', tier: '', websiteUrl: '', visibility: 'public' });
+      toast.success("Partner updated successfully!");
+    } catch (error) {
+      toast.error("Failed to update partner");
+      handleFirestoreError(error, OperationType.UPDATE, `partners/${editingPartnerId}`);
+    }
+  };
+
+  const handleDeletePartner = async (id: string) => {
+    if (window.confirm('Are you sure you want to delete this partner?')) {
+      try {
+        await deleteDoc(doc(db, 'partners', id));
+        toast.success("Partner deleted");
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, `partners/${id}`);
+      }
+    }
+  };
+
+  const handleTogglePartnerVisibility = async (partner: Partner) => {
+    try {
+      const newVisibility = partner.visibility === 'hidden' ? 'public' : 'hidden';
+      await updateDoc(doc(db, 'partners', partner.id), { visibility: newVisibility });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `partners/${partner.id}`);
+      toast.error("Failed to update partner visibility");
+    }
+  };
+
+  const handleReorderPartners = async (partnerId: string, direction: 'up' | 'down') => {
+    const currentIndex = partners.findIndex(p => p.id === partnerId);
+    if (currentIndex === -1) return;
+    
+    if (direction === 'up' && currentIndex > 0) {
+      const newPartners = [...partners];
+      const temp = newPartners[currentIndex];
+      newPartners[currentIndex] = newPartners[currentIndex - 1];
+      newPartners[currentIndex - 1] = temp;
+      
+      try {
+        await Promise.all(newPartners.map((p, idx) => {
+          if (p.order !== idx) {
+            return updateDoc(doc(db, 'partners', p.id), { order: idx });
+          }
+        }));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, 'partners');
+      }
+    } else if (direction === 'down' && currentIndex < partners.length - 1) {
+      const newPartners = [...partners];
+      const temp = newPartners[currentIndex];
+      newPartners[currentIndex] = newPartners[currentIndex + 1];
+      newPartners[currentIndex + 1] = temp;
+      
+      try {
+        await Promise.all(newPartners.map((p, idx) => {
+          if (p.order !== idx) {
+            return updateDoc(doc(db, 'partners', p.id), { order: idx });
+          }
+        }));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, 'partners');
+      }
     }
   };
 
@@ -975,6 +1215,15 @@ export default function AdminDashboard() {
             Add Team Member
           </button>
         )}
+        {activeTab === 'partners' && (
+          <button 
+            onClick={() => setIsCreatingPartner(!isCreatingPartner)}
+            className="bg-black text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-800"
+          >
+            <Plus size={20} />
+            Add Partner/Sponsor
+          </button>
+        )}
       </div>
 
       <div className="flex gap-6 mb-8 border-b border-gray-200 overflow-x-auto whitespace-nowrap">
@@ -1064,6 +1313,14 @@ export default function AdminDashboard() {
             className={`pb-4 font-medium transition-colors ${activeTab === 'teamMembers' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
           >
             Manage Team
+          </button>
+        )}
+        {hasPermission('partners') && (
+          <button
+            onClick={() => setActiveTab('partners')}
+            className={`pb-4 font-medium transition-colors ${activeTab === 'partners' ? 'text-red-600 border-b-2 border-red-600 -mb-[1px]' : 'text-gray-500 hover:text-gray-900'}`}
+          >
+            Partners
           </button>
         )}
       </div>
@@ -1234,8 +1491,42 @@ export default function AdminDashboard() {
           </div>
         </>
       ) : activeTab === 'users' ? (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-          <table className="w-full text-left">
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Filter size={18} className="text-gray-500" />
+              <select 
+                value={userFilter}
+                onChange={e => setUserFilter(e.target.value as 'all' | 'with_ticket' | 'without_ticket')}
+                className="bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-lg focus:ring-red-500 focus:border-red-500 block w-full p-2.5"
+              >
+                <option value="all">All Users</option>
+                <option value="with_ticket">Bought Tickets</option>
+                <option value="without_ticket">No Tickets</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <span className="text-sm text-gray-500 mr-2">
+                {filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''} found
+              </span>
+              <button 
+                onClick={exportUsersExcel}
+                className="flex items-center justify-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition text-sm font-medium"
+              >
+                <Download size={14} />
+                Excel
+              </button>
+              <button 
+                onClick={exportUsersPDF}
+                className="flex items-center justify-center gap-2 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition text-sm font-medium"
+              >
+                <Download size={14} />
+                PDF
+              </button>
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <table className="w-full text-left">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="p-4 font-semibold">Name</th>
@@ -1291,6 +1582,7 @@ export default function AdminDashboard() {
             </tbody>
           </table>
         </div>
+      </div>
       ) : activeTab === 'speakers' ? (
         <>
           {isCreatingSpeaker && (
@@ -1299,8 +1591,8 @@ export default function AdminDashboard() {
               animate={{ opacity: 1, height: 'auto' }}
               className="bg-gray-50 p-6 rounded-2xl mb-8 border border-gray-200"
             >
-              <h2 className="text-xl font-bold mb-4">New Speaker</h2>
-              <form onSubmit={handleCreateSpeaker} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <h2 className="text-xl font-bold mb-4">{editingSpeakerId ? 'Edit Speaker' : 'New Speaker'}</h2>
+              <form onSubmit={handleSaveSpeaker} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Name</label>
                   <input 
@@ -1321,6 +1613,16 @@ export default function AdminDashboard() {
                     onChange={e => setSpeakerFormData({...speakerFormData, role: e.target.value})}
                     className="w-full p-2 border rounded-lg"
                     placeholder="e.g. CEO, Tech Corp"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium mb-1">Talk Title (Optional)</label>
+                  <input 
+                    type="text" 
+                    value={speakerFormData.talkTitle}
+                    onChange={e => setSpeakerFormData({...speakerFormData, talkTitle: e.target.value})}
+                    className="w-full p-2 border rounded-lg"
+                    placeholder="e.g. The Future of AI"
                   />
                 </div>
                 <div className="md:col-span-2">
@@ -1345,7 +1647,11 @@ export default function AdminDashboard() {
                 <div className="md:col-span-2 flex justify-end gap-2 mt-2">
                   <button 
                     type="button" 
-                    onClick={() => setIsCreatingSpeaker(false)}
+                    onClick={() => {
+                      setIsCreatingSpeaker(false);
+                      setEditingSpeakerId(null);
+                      setSpeakerFormData({ name: '', role: '', talkTitle: '', bio: '', imageUrl: '' });
+                    }}
                     className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg"
                   >
                     Cancel
@@ -1354,7 +1660,7 @@ export default function AdminDashboard() {
                     type="submit"
                     className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
                   >
-                    Save Speaker
+                    {editingSpeakerId ? 'Update Speaker' : 'Save Speaker'}
                   </button>
                 </div>
               </form>
@@ -1372,7 +1678,7 @@ export default function AdminDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {filteredSpeakers.map(speaker => (
+                {displaySpeakers.map((speaker, index) => (
                   <tr key={speaker.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                     <td className="p-4">
                       {speaker.imageUrl ? (
@@ -1387,15 +1693,39 @@ export default function AdminDashboard() {
                     <td className="p-4 text-gray-600">{speaker.role}</td>
                     <td className="p-4 text-right">
                       <button 
+                        onClick={() => handleReorderSpeakers(speaker.id, 'up')}
+                        disabled={index === 0}
+                        className={`p-2 ${index === 0 ? 'text-gray-300' : 'text-gray-500 hover:text-gray-700'}`}
+                        title="Move Up"
+                      >
+                        <ArrowUp size={18} />
+                      </button>
+                      <button 
+                        onClick={() => handleReorderSpeakers(speaker.id, 'down')}
+                        disabled={index === displaySpeakers.length - 1}
+                        className={`p-2 mr-2 ${index === displaySpeakers.length - 1 ? 'text-gray-300' : 'text-gray-500 hover:text-gray-700'}`}
+                        title="Move Down"
+                      >
+                        <ArrowDown size={18} />
+                      </button>
+                      <button 
+                        onClick={() => handleEditSpeaker(speaker)}
+                        className="text-blue-500 hover:text-blue-700 p-2 border-l border-gray-200 ml-2 pl-4"
+                        title="Edit Speaker"
+                      >
+                        <Edit2 size={18} />
+                      </button>
+                      <button 
                         onClick={() => handleDeleteSpeaker(speaker.id)}
                         className="text-red-500 hover:text-red-700 p-2"
+                        title="Delete Speaker"
                       >
                         <Trash2 size={18} />
                       </button>
                     </td>
                   </tr>
                 ))}
-                {filteredSpeakers.length === 0 && (
+                {displaySpeakers.length === 0 && (
                   <tr>
                     <td colSpan={4} className="p-8 text-center text-gray-500">No speakers found.</td>
                   </tr>
@@ -2013,6 +2343,23 @@ export default function AdminDashboard() {
               />
               <p className="text-xs text-gray-500 mt-1">Used for the countdown timer on the homepage. Must be in YYYY-MM-DDTHH:mm:ss format.</p>
             </div>
+            
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
+              <div>
+                <h4 className="font-medium text-gray-900">Call for Speakers</h4>
+                <p className="text-sm text-gray-500">Enable or disable the call for speakers form.</p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  className="sr-only peer" 
+                  checked={eventSettings.isCallForSpeakersOpen !== false}
+                  onChange={(e) => setEventSettings({...eventSettings, isCallForSpeakersOpen: e.target.checked})}
+                />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
+              </label>
+            </div>
+
             <div className="pt-4">
               <button 
                 type="submit"
@@ -2180,6 +2527,184 @@ export default function AdminDashboard() {
                 {displayTeamMembers.length === 0 && (
                   <tr>
                     <td colSpan={4} className="p-8 text-center text-gray-500">No team members found.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : activeTab === 'partners' ? (
+        <>
+          {isCreatingPartner && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="bg-gray-50 p-6 rounded-2xl mb-8 border border-gray-200"
+            >
+              <h2 className="text-xl font-bold mb-4">{editingPartnerId ? 'Edit Partner' : 'Add Partner'}</h2>
+              <form onSubmit={editingPartnerId ? handleUpdatePartner : handleCreatePartner} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Name</label>
+                  <input 
+                    required
+                    type="text" 
+                    value={partnerFormData.name}
+                    onChange={e => setPartnerFormData({...partnerFormData, name: e.target.value})}
+                    className="w-full p-2 border rounded-lg"
+                    placeholder="e.g. Acme Corp"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Tier / Category</label>
+                  <input 
+                    required
+                    type="text" 
+                    value={partnerFormData.tier}
+                    onChange={e => setPartnerFormData({...partnerFormData, tier: e.target.value})}
+                    className="w-full p-2 border rounded-lg"
+                    placeholder="e.g. Platinum Partner"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Visibility</label>
+                  <select 
+                    value={partnerFormData.visibility}
+                    onChange={e => setPartnerFormData({...partnerFormData, visibility: e.target.value as 'public' | 'hidden'})}
+                    className="w-full p-2 border rounded-lg"
+                  >
+                    <option value="public">Public</option>
+                    <option value="hidden">Hidden</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Logo URL</label>
+                  <input 
+                    required
+                    type="url" 
+                    value={partnerFormData.logoUrl}
+                    onChange={e => setPartnerFormData({...partnerFormData, logoUrl: e.target.value})}
+                    className="w-full p-2 border rounded-lg"
+                    placeholder="https://example.com/logo.png"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Website URL (Optional)</label>
+                  <input 
+                    type="url" 
+                    value={partnerFormData.websiteUrl}
+                    onChange={e => setPartnerFormData({...partnerFormData, websiteUrl: e.target.value})}
+                    className="w-full p-2 border rounded-lg"
+                    placeholder="https://example.com"
+                  />
+                </div>
+                <div className="md:col-span-2 flex justify-end gap-2 mt-2">
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                        setIsCreatingPartner(false);
+                        setEditingPartnerId(null);
+                        setPartnerFormData({ name: '', logoUrl: '', tier: '', websiteUrl: '', visibility: 'public' });
+                    }}
+                    className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit"
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  >
+                    {editingPartnerId ? 'Update Partner' : 'Save Partner'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          )}
+
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="p-4 font-semibold">Logo</th>
+                  <th className="p-4 font-semibold">Name</th>
+                  <th className="p-4 font-semibold">Tier</th>
+                  <th className="p-4 font-semibold text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...partners].sort((a, b) => (a.order ?? 999) - (b.order ?? 999)).map((partner, index) => (
+                  <tr key={partner.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                    <td className="p-4">
+                      {partner.logoUrl ? (
+                        <img src={partner.logoUrl} alt={partner.name} className="h-10 object-contain" />
+                      ) : (
+                        <div className="w-10 h-10 bg-gray-200 flex items-center justify-center text-gray-500 font-bold">
+                          {partner.name.charAt(0)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-4 font-medium">
+                      {partner.name}
+                      {partner.visibility === 'hidden' && (
+                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                          Hidden
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-4 text-gray-600">{partner.tier}</td>
+                    <td className="p-4 text-right">
+                      <button 
+                        onClick={() => handleReorderPartners(partner.id, 'up')}
+                        disabled={index === 0}
+                        className={`p-2 ${index === 0 ? 'text-gray-300' : 'text-gray-500 hover:text-gray-700'}`}
+                        title="Move Up"
+                      >
+                        <ArrowUp size={18} />
+                      </button>
+                      <button 
+                        onClick={() => handleReorderPartners(partner.id, 'down')}
+                        disabled={index === partners.length - 1}
+                        className={`p-2 mr-2 ${index === partners.length - 1 ? 'text-gray-300' : 'text-gray-500 hover:text-gray-700'}`}
+                        title="Move Down"
+                      >
+                        <ArrowDown size={18} />
+                      </button>
+                      <button 
+                        onClick={() => handleTogglePartnerVisibility(partner)}
+                        className="text-gray-500 hover:text-gray-700 p-2"
+                        title={partner.visibility === 'hidden' ? 'Make Public' : 'Make Hidden'}
+                      >
+                        {partner.visibility === 'hidden' ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setEditingPartnerId(partner.id);
+                          setPartnerFormData({
+                            name: partner.name,
+                            logoUrl: partner.logoUrl,
+                            tier: partner.tier || '',
+                            websiteUrl: partner.websiteUrl || '',
+                            visibility: partner.visibility || 'public'
+                          });
+                          setIsCreatingPartner(true);
+                        }}
+                        className="text-blue-500 hover:text-blue-700 p-2 border-l border-gray-200 ml-2 pl-4"
+                        title="Edit Partner"
+                      >
+                        <Edit2 size={18} />
+                      </button>
+                      <button 
+                        onClick={() => handleDeletePartner(partner.id)}
+                        className="text-red-500 hover:text-red-700 p-2"
+                        title="Delete Partner"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {partners.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="p-8 text-center text-gray-500">No partners found.</td>
                   </tr>
                 )}
               </tbody>
