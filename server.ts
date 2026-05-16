@@ -258,6 +258,64 @@ async function startServer() {
     }
   });
 
+  app.post("/api/send-checkin-email", async (req, res) => {
+    try {
+      const { email, name } = req.body;
+
+      if (!email) {
+        return res.status(400).json({ error: "Missing required email field" });
+      }
+
+      if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
+        console.warn("GMAIL_USER or GMAIL_PASS is not set. Skipping email sending.");
+        return res.json({ success: true, message: "Email skipped (credentials missing)" });
+      }
+
+      const mailOptions: any = {
+        from: `"TEDx Lokoja" <${process.env.GMAIL_USER}>`,
+        to: email, // Send to the attendee
+        subject: `Welcome to TEDx Lokoja!`,
+        html: `
+          <div style="font-family: sans-serif; max-w: 600px; margin: 0 auto; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden;">
+            <div style="background-color: #dc2626; padding: 20px; color: white; text-align: center;">
+               <h1 style="margin: 0; font-size: 24px;">TEDx Lokoja</h1>
+            </div>
+            <div style="padding: 30px; background-color: #ffffff; color: #333333;">
+              <h2 style="margin-top: 0;">Hi ${name || 'Attendee'},</h2>
+              <p style="font-size: 16px; line-height: 1.5;">Thank you for checking in at TEDx Lokoja! We're thrilled to have you here.</p>
+              
+              <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 25px 0;">
+                <h3 style="margin: 0 0 10px 0; color: #dc2626;">What to look forward to:</h3>
+                <ul style="margin: 0; padding-left: 20px; font-size: 16px; line-height: 1.6;">
+                  <li>Inspiring talks from brilliant minds</li>
+                  <li>Incredible networking opportunities</li>
+                  <li>Engaging community activities</li>
+                </ul>
+              </div>
+              
+              <p style="font-size: 16px;">We hope you have an incredible experience today. Start Where You Are!</p>
+              
+              <p style="font-size: 16px; font-weight: bold; margin-top: 30px;">Best wishes,<br>The TEDx Lokoja Team</p>
+            </div>
+            <div style="background-color: #f9fafb; padding: 15px; text-align: center; font-size: 12px; color: #6b7280; border-top: 1px solid #e5e5e5;">
+              &copy; 2026 TEDx Lokoja. All rights reserved.
+            </div>
+          </div>
+        `
+      };
+
+      if (process.env.ADMIN_EMAIL) {
+        mailOptions.cc = process.env.ADMIN_EMAIL;
+      }
+
+      const info = await transporter.sendMail(mailOptions);
+      res.json({ success: true, data: info });
+    } catch (error: unknown) {
+      console.error("Nodemailer error:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Internal Server Error" });
+    }
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

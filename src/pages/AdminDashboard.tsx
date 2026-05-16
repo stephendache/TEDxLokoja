@@ -1,9 +1,37 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../firebase';
+import { Html5QrcodeScanner } from 'html5-qrcode';
+
+const QrScanner = ({ onScan }: { onScan: (text: string) => void }) => {
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+
+  useEffect(() => {
+    scannerRef.current = new Html5QrcodeScanner(
+      "reader",
+      { fps: 10, qrbox: { width: 250, height: 250 } },
+      /* verbose= */ false
+    );
+    scannerRef.current.render(
+      (decodedText) => {
+        onScan(decodedText);
+      },
+      (error) => {
+        // ignore errors
+      }
+    );
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(console.error);
+      }
+    };
+  }, [onScan]);
+
+  return <div id="reader" className="w-full max-w-sm mx-auto bg-white" ></div>;
+};
 import { collection, addDoc, onSnapshot, serverTimestamp, deleteDoc, doc, updateDoc, setDoc, getDoc, increment } from 'firebase/firestore';
-import { motion } from 'motion/react';
-import { Plus, Trash2, Shield, ShieldAlert, Search, Save, ArrowUp, ArrowDown, Eye, EyeOff, Edit2, Settings, Download, CheckCircle, Circle, Filter, Mail } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Plus, Trash2, Shield, ShieldAlert, Search, Save, ArrowUp, ArrowDown, Eye, EyeOff, Edit2, Settings, Download, CheckCircle, Circle, Filter, Mail, Scan, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
@@ -115,6 +143,7 @@ interface Coupon {
   maxUses: number;
   currentUses: number;
   active: boolean;
+  applicableTicketType?: string; // 'all' or ticket id
   createdAt: any;
 }
 
@@ -188,6 +217,7 @@ export default function AdminDashboard() {
   const [isCreatingMerch, setIsCreatingMerch] = useState(false);
   const [isCreatingCoupon, setIsCreatingCoupon] = useState(false);
   const [isCreatingAttendee, setIsCreatingAttendee] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -218,7 +248,8 @@ export default function AdminDashboard() {
   const [couponFormData, setCouponFormData] = useState({
     code: '',
     discountPercentage: '',
-    maxUses: ''
+    maxUses: '',
+    applicableTicketType: 'all'
   });
   const [attendeeFormData, setAttendeeFormData] = useState({
     userName: '',
@@ -400,7 +431,7 @@ export default function AdminDashboard() {
   const filteredMerch = merchItems.filter(m => m.name.toLowerCase().includes(lowerQuery) || m.category.toLowerCase().includes(lowerQuery));
   const filteredMerchOrders = merchOrders.filter(o => o.userId.toLowerCase().includes(lowerQuery) || o.status.toLowerCase().includes(lowerQuery));
   const filteredPurchases = purchases.filter(p => {
-    const searchMatch = p.status === 'success' && (p.userName?.toLowerCase().includes(lowerQuery) || p.userEmail?.toLowerCase().includes(lowerQuery) || p.reference.toLowerCase().includes(lowerQuery) || p.ticketName?.toLowerCase().includes(lowerQuery));
+    const searchMatch = p.status === 'success' && (p.userName?.toLowerCase().includes(lowerQuery) || p.userEmail?.toLowerCase().includes(lowerQuery) || p.reference?.toLowerCase().includes(lowerQuery) || p.ticketName?.toLowerCase().includes(lowerQuery));
     const ticketMatch = ticketFilter === 'all' || p.ticketName === ticketFilter;
     return searchMatch && ticketMatch;
   });
@@ -743,10 +774,41 @@ export default function AdminDashboard() {
     try {
       await updateDoc(doc(db, 'purchases', purchaseId), { checkedIn: !currentStatus });
       toast.success(currentStatus ? "Check-in removed" : "Checked in successfully");
+      
+      if (!currentStatus) {
+        const purchase = purchases.find(p => p.id === purchaseId);
+        if (purchase && purchase.userEmail) {
+          fetch('/api/send-checkin-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: purchase.userEmail,
+              name: purchase.userName || 'Attendee'
+            })
+          }).catch(err => console.error("Failed to send check-in email:", err));
+        }
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'purchases');
       toast.error("Failed to update check-in status");
     }
+  };
+
+  const handleScanResult = async (scannedText: string) => {
+    const purchase = purchases.find(p => p.reference === scannedText);
+    if (!purchase) {
+      toast.error(`Invalid ticket reference: ${scannedText}`);
+      setIsScannerOpen(false);
+      return;
+    }
+    if (purchase.checkedIn) {
+      toast.error(`Already checked in: ${purchase.userName || 'Attendee'}`);
+      setIsScannerOpen(false);
+      return;
+    }
+    
+    await handleToggleCheckIn(purchase.id, false);
+    setIsScannerOpen(false);
   };
 
   const handleResendTicket = async (purchase: Purchase) => {
@@ -786,8 +848,8 @@ export default function AdminDashboard() {
       Name: p.userName || 'N/A',
       Email: p.userEmail || p.userId,
       'Ticket Type': p.ticketName || p.ticketTypeId,
-      Amount: p.amount,
-      Reference: p.reference,
+      Amount: p.amount || 0,
+      Reference: p.reference || 'N/A',
       'Checked In': p.checkedIn ? 'Yes' : 'No',
       Date: p.createdAt?.toDate ? p.createdAt.toDate().toLocaleString() : 'N/A'
     }));
@@ -955,12 +1017,13 @@ export default function AdminDashboard() {
         code: couponFormData.code.toUpperCase().trim(),
         discountPercentage: Number(couponFormData.discountPercentage),
         maxUses: Number(couponFormData.maxUses),
+        applicableTicketType: couponFormData.applicableTicketType,
         currentUses: 0,
         active: true,
         createdAt: serverTimestamp()
       });
       setIsCreatingCoupon(false);
-      setCouponFormData({ code: '', discountPercentage: '', maxUses: '' });
+      setCouponFormData({ code: '', discountPercentage: '', maxUses: '', applicableTicketType: 'all' });
       toast.success("Coupon created successfully!");
     } catch (error) {
       toast.error("Failed to create coupon");
@@ -2127,6 +2190,13 @@ export default function AdminDashboard() {
                 <Download size={16} />
                 PDF
               </button>
+              <button 
+                onClick={() => setIsScannerOpen(true)}
+                className="flex items-center justify-center gap-2 px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition w-full sm:w-auto text-sm font-medium"
+              >
+                <Scan size={16} />
+                Scan Barcode
+              </button>
             </div>
           </div>
 
@@ -2149,8 +2219,8 @@ export default function AdminDashboard() {
                     <td className="p-4 font-medium">{purchase.userName || 'N/A'}</td>
                     <td className="p-4 text-gray-600">{purchase.userEmail || purchase.userId}</td>
                     <td className="p-4 text-gray-600">{purchase.ticketName || purchase.ticketTypeId}</td>
-                    <td className="p-4 font-medium text-green-600">₦{purchase.amount.toLocaleString()}</td>
-                    <td className="p-4 font-mono text-xs text-gray-500">{purchase.reference}</td>
+                    <td className="p-4 font-medium text-green-600">₦{purchase.amount?.toLocaleString() || purchase.amount || 0}</td>
+                    <td className="p-4 font-mono text-xs text-gray-500">{purchase.reference || 'N/A'}</td>
                     <td className="p-4 text-center">
                       <button 
                         onClick={() => handleToggleCheckIn(purchase.id, purchase.checkedIn)}
@@ -2189,6 +2259,39 @@ export default function AdminDashboard() {
               </tbody>
             </table>
           </div>
+          
+          <AnimatePresence>
+            {isScannerOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                  onClick={() => setIsScannerOpen(false)}
+                />
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                  className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden p-6"
+                >
+                  <button 
+                    onClick={() => setIsScannerOpen(false)}
+                    className="absolute top-4 right-4 z-10 p-2 bg-gray-100 rounded-full text-gray-900 hover:bg-gray-200 transition-colors"
+                  >
+                    <X size={20} />
+                  </button>
+                  <div className="text-center mb-6">
+                    <h3 className="text-2xl font-bold">Scan Ticket</h3>
+                    <p className="text-gray-500">Scan an attendee's QR code or barcode to check them in.</p>
+                  </div>
+                  
+                  <QrScanner onScan={handleScanResult} />
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
         </div>
       ) : activeTab === 'coupons' ? (
         <>
@@ -2199,7 +2302,7 @@ export default function AdminDashboard() {
               className="bg-gray-50 p-6 rounded-2xl mb-8 border border-gray-200"
             >
               <h2 className="text-xl font-bold mb-4">Create New Coupon</h2>
-              <form onSubmit={handleCreateCoupon} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <form onSubmit={handleCreateCoupon} className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Coupon Code</label>
                   <input 
@@ -2230,7 +2333,21 @@ export default function AdminDashboard() {
                     required placeholder="e.g., 50" 
                   />
                 </div>
-                <div className="md:col-span-3 flex justify-end gap-2 mt-2">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Applies To</label>
+                  <select 
+                    value={couponFormData.applicableTicketType} 
+                    onChange={e => setCouponFormData({...couponFormData, applicableTicketType: e.target.value})}
+                    className="w-full p-2 border rounded-lg" 
+                    required
+                  >
+                    <option value="all">All Ticket Types</option>
+                    {tickets.map(ticket => (
+                      <option key={ticket.id} value={ticket.id}>{ticket.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-4 flex justify-end gap-2 mt-2">
                   <button type="button" onClick={() => setIsCreatingCoupon(false)} className="px-4 py-2 border rounded-lg">Cancel</button>
                   <button type="submit" className="px-4 py-2 bg-red-600 text-white rounded-lg">Create Coupon</button>
                 </div>
@@ -2243,6 +2360,7 @@ export default function AdminDashboard() {
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="p-4 font-semibold">Code</th>
+                  <th className="p-4 font-semibold">Applies To</th>
                   <th className="p-4 font-semibold">Discount</th>
                   <th className="p-4 font-semibold">Uses</th>
                   <th className="p-4 font-semibold">Status</th>
@@ -2253,6 +2371,11 @@ export default function AdminDashboard() {
                 {filteredCoupons.map(coupon => (
                   <tr key={coupon.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                     <td className="p-4 font-bold font-mono">{coupon.code}</td>
+                    <td className="p-4 text-gray-600 text-sm">
+                      {coupon.applicableTicketType === 'all' || !coupon.applicableTicketType 
+                        ? 'All Tickets' 
+                        : tickets.find(t => t.id === coupon.applicableTicketType)?.name || 'Unknown'}
+                    </td>
                     <td className="p-4 text-red-600 font-medium">{coupon.discountPercentage}% OFF</td>
                     <td className="p-4 text-gray-600">
                       {coupon.currentUses} / {coupon.maxUses}
@@ -2276,7 +2399,7 @@ export default function AdminDashboard() {
                 ))}
                 {filteredCoupons.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="p-8 text-center text-gray-500">No coupons found.</td>
+                    <td colSpan={6} className="p-8 text-center text-gray-500">No coupons found.</td>
                   </tr>
                 )}
               </tbody>

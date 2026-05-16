@@ -70,6 +70,13 @@ export default function Tickets() {
         return;
       }
       
+      if (couponData.applicableTicketType && couponData.applicableTicketType !== 'all') {
+        if (!selectedTicket || couponData.applicableTicketType !== selectedTicket.id) {
+          toast.error("This coupon is not valid for this ticket type.");
+          return;
+        }
+      }
+      
       setAppliedCoupon({
         id: couponDoc.id,
         code: couponData.code,
@@ -278,7 +285,11 @@ export default function Tickets() {
                 </div>
               ) : (
                 <button 
-                  onClick={() => setSelectedTicket(ticket)}
+                  onClick={() => {
+                    setSelectedTicket(ticket);
+                    setAppliedCoupon(null);
+                    setCouponCodeInput('');
+                  }}
                   disabled={ticket.available === 0}
                   className="w-full bg-black hover:bg-gray-800 text-white py-4 rounded-xl font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
